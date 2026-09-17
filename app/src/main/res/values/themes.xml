@@ -1,0 +1,10 @@
+<resources>
+    <!-- Only used for the window background before Compose takes over, and by the
+         launcher/task-switcher chrome. All real theming (color, type, shape) lives in
+         ui/theme/Theme.kt so it can respond to the in-app theme-color and dark-mode
+         settings — this XML theme deliberately stays minimal. -->
+    <style name="Theme.Cady" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Placeholder mark: a simple receipt/invoice glyph, white on the brand-red
+         background, sized inside the adaptive-icon safe zone (center 66dp).
+         Swap for the real Kady logo via Image Asset Studio when the asset is available. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,27 h36 v54 l-9,-7 -9,7 -9,-7 -9,7 z" />
+    <path
+        android:fillColor="#C62828"
+        android:pathData="M42,41 h24 v4 h-24 z M42,51 h24 v4 h-24 z M42,61 h16 v4 h-16 z" />
+</vector>
