@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1074174355064",
+    "project_id": "cady-34220",
+    "storage_bucket": "cady-34220.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1074174355064:android:34556a2ff05ea3b6b0ef8d",
+        "android_client_info": {
+          "package_name": "com.cady.cadysalesapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAywjNm24ZKCx2xY5uJFRSxruMDuJD0wtE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

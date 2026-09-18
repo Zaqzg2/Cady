@@ -12,12 +12,16 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.cady.cadysalesapp.ui.lock.LockScreen
+import com.cady.cadysalesapp.ui.login.LoginScreen
+import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
 
 /**
  * Every route from CadyDestinations wired to a placeholder screen so the app
  * shell already builds and runs end to end. Each placeholder() call below gets
  * swapped for the real screen composable as that phase (see the review doc's
- * "ترتيب البناء المقترح") lands — Login is deliberately first in Phase 1.
+ * "ترتيب البناء المقترح") lands. Phase 1 (identity) is the first to land for real:
+ * Login, SetupManager, and Lock below are now the actual screens, not stubs.
  */
 @Composable
 fun CadyNavHost(
@@ -25,9 +29,33 @@ fun CadyNavHost(
     startDestination: String = CadyDestination.Login.route,
 ) {
     NavHost(navController = navController, startDestination = startDestination) {
-        composable(CadyDestination.SetupManager.route) { PlaceholderScreen("إعداد أول حساب مدير") }
-        composable(CadyDestination.Login.route) { PlaceholderScreen("تسجيل الدخول") }
-        composable(CadyDestination.Lock.route) { PlaceholderScreen("قفل التطبيق") }
+        composable(CadyDestination.SetupManager.route) {
+            SetupManagerScreen(
+                onManagerCreated = {
+                    navController.navigate(CadyDestination.Home.route) {
+                        popUpTo(CadyDestination.Login.route) { inclusive = true }
+                    }
+                },
+                onGoToLoginClick = { navController.popBackStack() },
+            )
+        }
+        composable(CadyDestination.Login.route) {
+            LoginScreen(
+                onLoginSuccess = {
+                    // TODO(Phase 2+): branch to CadyDestination.ManagerRoot for a
+                    // manager account instead of Home once ManagerRootNav exists —
+                    // AccountRepository.currentUser already carries the role needed
+                    // to make that call, this just isn't wired up yet.
+                    navController.navigate(CadyDestination.Home.route) {
+                        popUpTo(CadyDestination.Login.route) { inclusive = true }
+                    }
+                },
+                onCreateFirstManagerClick = { navController.navigate(CadyDestination.SetupManager.route) },
+            )
+        }
+        composable(CadyDestination.Lock.route) {
+            LockScreen(onUnlocked = { navController.popBackStack() })
+        }
 
         composable(CadyDestination.Home.route) { PlaceholderScreen("الرئيسية") }
         composable(CadyDestination.Customers.route) { PlaceholderScreen("العملاء") }
