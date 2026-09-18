@@ -17,6 +17,9 @@ interface InvoiceDao {
     @Query("SELECT * FROM invoices WHERE customerId = :customerId ORDER BY date DESC")
     fun observeForCustomer(customerId: String): Flow<List<InvoiceEntity>>
 
+    @Query("SELECT * FROM invoices WHERE customerId = :customerId")
+    suspend fun getForCustomerOnce(customerId: String): List<InvoiceEntity>
+
     @Query("SELECT * FROM invoices WHERE id = :id")
     suspend fun getById(id: String): InvoiceEntity?
 

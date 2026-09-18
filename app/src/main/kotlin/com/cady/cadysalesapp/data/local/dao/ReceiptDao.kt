@@ -16,6 +16,9 @@ interface ReceiptDao {
     @Query("SELECT * FROM receipts WHERE customerId = :customerId ORDER BY date DESC")
     fun observeForCustomer(customerId: String): Flow<List<ReceiptEntity>>
 
+    @Query("SELECT * FROM receipts WHERE customerId = :customerId")
+    suspend fun getForCustomerOnce(customerId: String): List<ReceiptEntity>
+
     @Query("SELECT * FROM receipts WHERE id = :id")
     suspend fun getById(id: String): ReceiptEntity?
 

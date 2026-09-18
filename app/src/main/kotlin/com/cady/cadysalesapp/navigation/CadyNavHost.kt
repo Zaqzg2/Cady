@@ -12,8 +12,12 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.cady.cadysalesapp.ui.customerdetail.CustomerDetailScreen
+import com.cady.cadysalesapp.ui.customers.CustomersScreen
+import com.cady.cadysalesapp.ui.home.HomeScreen
 import com.cady.cadysalesapp.ui.lock.LockScreen
 import com.cady.cadysalesapp.ui.login.LoginScreen
+import com.cady.cadysalesapp.ui.products.ProductsScreen
 import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
 
 /**
@@ -57,13 +61,52 @@ fun CadyNavHost(
             LockScreen(onUnlocked = { navController.popBackStack() })
         }
 
-        composable(CadyDestination.Home.route) { PlaceholderScreen("الرئيسية") }
-        composable(CadyDestination.Customers.route) { PlaceholderScreen("العملاء") }
-        composable(CadyDestination.CustomerDetail.route) { backStackEntry ->
-            val customerId = backStackEntry.arguments?.getString("customerId").orEmpty()
-            PlaceholderScreen("تفاصيل العميل: $customerId")
+        composable(CadyDestination.Home.route) {
+            HomeScreen(
+                onNewSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
+                onNewReturn = { navController.navigate(CadyDestination.Invoice.createRoute()) },
+                onNewReceipt = { navController.navigate(CadyDestination.Receipt.createRoute()) },
+                onNewCashCustomerSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
+                onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
+            )
         }
-        composable(CadyDestination.Products.route) { PlaceholderScreen("المنتجات") }
+        composable(CadyDestination.Customers.route) {
+            CustomersScreen(
+                onCustomerClick = { id -> navController.navigate(CadyDestination.CustomerDetail.createRoute(id)) },
+            )
+        }
+        composable(CadyDestination.CustomerDetail.route) { backStackEntry ->
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val customerId = backStackEntry.arguments?.getString("customerId").orEmpty()
+            CustomerDetailScreen(
+                onNewInvoice = { _ ->
+                    // TODO(Phase 3): pass the sale/return kind through once
+                    // InvoiceScreen actually reads it — CadyDestination.Invoice
+                    // doesn't carry a kind argument yet.
+                    navController.navigate(CadyDestination.Invoice.createRoute(customerId = customerId))
+                },
+                onNewReceipt = {
+                    navController.navigate(CadyDestination.Receipt.createRoute(customerId = customerId))
+                },
+                onPreviewStatement = { /* TODO(Phase 4): wire real PdfService */ },
+                onPrintStatement = { /* TODO(Phase 4): wire real PdfService */ },
+                onCallClick = { phone ->
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
+                    )
+                },
+                onWhatsAppClick = { phone ->
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://wa.me/$phone"),
+                        )
+                    )
+                },
+                onMapClick = { /* TODO(Phase 2 polish): geocode the address, launch geo: intent */ },
+            )
+        }
+        composable(CadyDestination.Products.route) { ProductsScreen() }
         composable(CadyDestination.Reports.route) { PlaceholderScreen("التقارير") }
         composable(CadyDestination.Invoice.route) { PlaceholderScreen("فاتورة") }
         composable(CadyDestination.Receipt.route) { PlaceholderScreen("سند قبض") }
