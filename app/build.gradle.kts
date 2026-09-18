@@ -53,6 +53,12 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        // TopAppBar (and CenterAlignedTopAppBar, ModalBottomSheet, etc. later) are
+        // marked @ExperimentalMaterial3Api in this Compose BOM — @RequiresOptIn
+        // defaults to ERROR level, which is exactly what broke the CI build
+        // (HomeScreen.kt / ProductsScreen.kt). One project-wide opt-in here covers
+        // every current and future screen instead of a per-file @OptIn everywhere.
+        freeCompilerArgs.add("-opt-in=androidx.compose.material3.ExperimentalMaterial3Api")
     }
 }
 
