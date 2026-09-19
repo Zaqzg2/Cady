@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Generated invoice/receipt/statement PDFs live in cacheDir/pdfs — kept out
+         of permanent app storage since these are always regeneratable on demand. -->
+    <cache-path name="pdfs" path="pdfs/" />
+</paths>

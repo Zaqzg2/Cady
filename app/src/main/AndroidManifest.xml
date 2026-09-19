@@ -65,6 +65,19 @@
                 <data android:mimeType="application/json" />
             </intent-filter>
         </activity>
+
+        <!-- Lets share/print intents hand a generated PDF to another app
+             (WhatsApp, a print service, "Save as PDF", etc.) via a content://
+             URI instead of a raw file path, which Android 7+ requires. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.cady.cadysalesapp.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

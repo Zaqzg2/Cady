@@ -92,8 +92,15 @@ fun CadyNavHost(
                 onNewReceipt = {
                     navController.navigate(CadyDestination.Receipt.createRoute(customerId = customerId))
                 },
-                onPreviewStatement = { /* TODO(Phase 4): wire real PdfService */ },
-                onPrintStatement = { /* TODO(Phase 4): wire real PdfService */ },
+                onPreviewStatement = {
+                    navController.navigate(CadyDestination.PdfPreview.createRoute("statement", customerId))
+                },
+                onPrintStatement = {
+                    navController.navigate(CadyDestination.PdfPreview.createRoute("statement", customerId))
+                },
+                onDocumentClick = { type, id ->
+                    navController.navigate(CadyDestination.PdfPreview.createRoute(type, id))
+                },
                 onCallClick = { phone ->
                     context.startActivity(
                         android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
@@ -131,7 +138,15 @@ fun CadyNavHost(
             ReceiptScreen(onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
         }
         composable(CadyDestination.DocumentsList.route) { PlaceholderScreen("سجل المستندات") }
-        composable(CadyDestination.PdfPreview.route) { PlaceholderScreen("معاينة PDF") }
+        composable(
+            CadyDestination.PdfPreview.route,
+            arguments = listOf(
+                navArgument("docType") { type = NavType.StringType },
+                navArgument("docId") { type = NavType.StringType },
+            ),
+        ) {
+            com.cady.cadysalesapp.ui.pdfpreview.PdfPreviewScreen(onBack = { navController.popBackStack() })
+        }
 
         composable(CadyDestination.SettingsHub.route) { PlaceholderScreen("الإعدادات") }
         composable(CadyDestination.SettingsCompany.route) { PlaceholderScreen("بيانات الشركة") }

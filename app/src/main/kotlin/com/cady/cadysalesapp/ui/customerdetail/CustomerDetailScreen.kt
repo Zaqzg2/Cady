@@ -49,6 +49,7 @@ fun CustomerDetailScreen(
     onNewReceipt: () -> Unit,
     onPreviewStatement: () -> Unit,
     onPrintStatement: () -> Unit,
+    onDocumentClick: (type: String, id: String) -> Unit,
     onCallClick: (String) -> Unit,
     onWhatsAppClick: (String) -> Unit,
     onMapClick: () -> Unit,
@@ -122,7 +123,12 @@ fun CustomerDetailScreen(
 
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 items(state.timeline) { item ->
-                    TimelineRow(item)
+                    TimelineRow(item, onClick = {
+                        when (item) {
+                            is RecentActivityItem.Invoice -> onDocumentClick("invoice", item.invoice.id)
+                            is RecentActivityItem.Receipt -> onDocumentClick("receipt", item.receipt.id)
+                        }
+                    })
                 }
             }
         }
@@ -140,7 +146,7 @@ private fun HeaderActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVect
 }
 
 @Composable
-private fun TimelineRow(item: RecentActivityItem) {
+private fun TimelineRow(item: RecentActivityItem, onClick: () -> Unit) {
     val (title, subtitle, amount) = when (item) {
         is RecentActivityItem.Invoice -> Triple(
             if (item.invoice.kind == InvoiceKind.SALE) "فاتورة بيع" else "فاتورة مرتجع",
@@ -150,7 +156,7 @@ private fun TimelineRow(item: RecentActivityItem) {
         is RecentActivityItem.Receipt -> Triple("سند قبض", item.receipt.docNumber, item.receipt.balanceAfter)
     }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {

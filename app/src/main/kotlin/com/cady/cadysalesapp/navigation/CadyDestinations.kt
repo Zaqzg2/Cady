@@ -32,8 +32,8 @@ sealed class CadyDestination(val route: String) {
             "receipt?receiptId=${receiptId.orEmpty()}&customerId=${customerId.orEmpty()}"
     }
     data object DocumentsList : CadyDestination("documents")
-    data object PdfPreview : CadyDestination("pdf_preview/{docId}") {
-        fun createRoute(docId: String) = "pdf_preview/$docId"
+    data object PdfPreview : CadyDestination("pdf_preview/{docType}/{docId}") {
+        fun createRoute(docType: String, docId: String) = "pdf_preview/$docType/$docId"
     }
 
     // Settings

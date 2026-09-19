@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,7 +19,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -139,7 +138,7 @@ fun InvoiceScreen(
                             Icon(Icons.Filled.Delete, contentDescription = "حذف")
                         }
                     }
-                    Divider()
+                    HorizontalDivider()
                 }
             }
 
@@ -233,7 +232,7 @@ private fun <T> PickerDialog(
                             .clickable { onPick(option) }
                             .padding(vertical = 12.dp),
                     )
-                    Divider()
+                    HorizontalDivider()
                 }
             }
         },

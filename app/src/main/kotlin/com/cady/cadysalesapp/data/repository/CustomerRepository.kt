@@ -7,6 +7,7 @@ import com.cady.cadysalesapp.data.local.dao.ReceiptDao
 import com.cady.cadysalesapp.data.local.entity.CustomerEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
+import com.cady.cadysalesapp.domain.LedgerRow
 import com.cady.cadysalesapp.domain.computeInvoiceTotals
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -99,5 +100,42 @@ class CustomerRepository @Inject constructor(
             .sumOf { it.amount }
 
         return customer.openingBalance + invoiceEffect - receiptsTotal
+    }
+
+    /** Full chronological statement for PDF/print — same math as computeBalance,
+        but keeps every step's running balance instead of just the final number. */
+    suspend fun getLedger(customerId: String): List<LedgerRow> {
+        val customer = customerDao.getById(customerId) ?: return emptyList()
+        val invoices = invoiceDao.getForCustomerOnce(customerId)
+        val receipts = receiptDao.getForCustomerOnce(customerId)
+
+        data class RawEntry(val date: Instant, val description: String, val docNumber: String?, val debit: Double, val credit: Double)
+
+        val entries = invoices.map { invoice ->
+            val items = invoiceItemDao.getForInvoice(invoice.id)
+            val grandTotal = computeInvoiceTotals(invoice, items).grandTotal
+            when (invoice.kind) {
+                InvoiceKind.SALE -> RawEntry(invoice.date, "فاتورة بيع", invoice.docNumber, debit = grandTotal, credit = 0.0)
+                InvoiceKind.SALE_RETURN -> RawEntry(invoice.date, "فاتورة مرتجع", invoice.docNumber, debit = 0.0, credit = grandTotal)
+            }
+        } + receipts.map { receipt ->
+            RawEntry(receipt.date, "سند قبض", receipt.docNumber, debit = 0.0, credit = receipt.amount)
+        }
+
+        var running = customer.openingBalance
+        val rows = mutableListOf(
+            LedgerRow(
+                date = customer.updatedAt, description = "رصيد افتتاحي", docNumber = null,
+                debit = 0.0, credit = 0.0, runningBalance = running,
+            )
+        )
+        entries.sortedBy { it.date }.forEach { entry ->
+            running += entry.debit - entry.credit
+            rows += LedgerRow(
+                date = entry.date, description = entry.description, docNumber = entry.docNumber,
+                debit = entry.debit, credit = entry.credit, runningBalance = running,
+            )
+        }
+        return rows
     }
 }
