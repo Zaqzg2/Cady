@@ -12,7 +12,6 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -100,7 +99,7 @@ class AccountRepository @Inject constructor(
             val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
             val uid = result.user?.uid ?: throw AccountException.WrongCredentials()
             val doc = usersCollection.document(uid).get().await()
-            val account = (doc.toUserAccountEntity(uid) ?: throw AccountException.WrongCredentials())
+            val account = doc.toUserAccountEntity(uid, fallbackUsername = username)
                 // The Firestore doc never carries a password hash (never stored
                 // server-side) — but a successful sign-in above just proved this
                 // password correct, so that's what gets cached for offline fallback.
@@ -113,7 +112,13 @@ class AccountRepository @Inject constructor(
             account
         } catch (e: FirebaseNetworkException) {
             loginOffline(username, password)
-        } catch (e: FirebaseAuthInvalidCredentialsException) {
+        } catch (e: com.google.firebase.auth.FirebaseAuthException) {
+            // Covers FirebaseAuthInvalidUserException (no account exists for this
+            // username at all) as well as FirebaseAuthInvalidCredentialsException
+            // (wrong password / malformed email) — both are just "wrong
+            // credentials" from the UI's point of view, but previously only the
+            // second one was caught here, so "no such user" fell through to a
+            // generic, unhelpful error instead of this specific message.
             throw AccountException.WrongCredentials()
         }
     }
@@ -190,10 +195,15 @@ class AccountRepository @Inject constructor(
     }
 
     private fun validateUsername(username: String) {
-        if (!username.matches(Regex("^[A-Za-z0-9_.]+$"))) throw AccountException.InvalidUsername()
+        // Matches the real Flutter app's _emailFor validation exactly
+        // (account_service.dart) — it allows a trailing hyphen too, which this
+        // regex previously didn't, and normalizes to lowercase before checking.
+        if (!username.trim().lowercase().matches(Regex("^[a-z0-9_.-]+$"))) {
+            throw AccountException.InvalidUsername()
+        }
     }
 
-    private fun emailFor(username: String) = "$username@cady-34220.firebaseapp.com"
+    private fun emailFor(username: String) = "${username.trim().lowercase()}@cady-34220.firebaseapp.com"
 
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256")
@@ -211,13 +221,19 @@ class AccountRepository @Inject constructor(
         "createdAt" to Timestamp(createdAt.epochSecond, createdAt.nano),
     )
 
-    private fun DocumentSnapshot.toUserAccountEntity(uid: String): UserAccountEntity? {
-        if (!exists()) return null
+    private fun DocumentSnapshot.toUserAccountEntity(uid: String, fallbackUsername: String): UserAccountEntity {
+        if (!exists()) {
+            // Auth succeeded but there's no matching Firestore profile — a genuinely
+            // different situation from a wrong password (e.g. account creation
+            // partially failed before its Firestore write). Worth its own clear
+            // message rather than silently becoming "wrong credentials".
+            throw IllegalStateException("تم التحقق من الحساب لكن تعذّر العثور على بيانات المستخدم بقاعدة البيانات")
+        }
         return UserAccountEntity(
             id = uid,
-            username = getString("username") ?: return null,
+            username = getString("username") ?: fallbackUsername,
             passwordHash = "", // never stored server-side; only meaningful in the local cache
-            displayName = getString("displayName") ?: "",
+            displayName = getString("displayName") ?: fallbackUsername,
             role = if (getString("role") == "manager") UserRole.MANAGER else UserRole.REP,
             repNumber = getLong("repNumber")?.toInt(),
             deviceName = getString("deviceName"),

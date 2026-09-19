@@ -33,7 +33,10 @@ class LoginViewModel @Inject constructor(
             } catch (e: AccountException) {
                 _state.value = UiState.Error(e.message ?: "تعذّر تسجيل الدخول")
             } catch (e: Exception) {
-                _state.value = UiState.Error("تعذّر تسجيل الدخول، حاول مرة أخرى")
+                // Surfaces the real exception message while we're still actively
+                // testing against a real Firebase project — a silent generic
+                // message here is exactly what cost a round-trip just now.
+                _state.value = UiState.Error("تعذّر تسجيل الدخول: ${e.message ?: e::class.simpleName}")
             }
         }
     }
