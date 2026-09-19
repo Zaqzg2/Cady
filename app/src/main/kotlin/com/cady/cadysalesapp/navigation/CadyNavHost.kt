@@ -9,15 +9,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.cady.cadysalesapp.ui.customerdetail.CustomerDetailScreen
 import com.cady.cadysalesapp.ui.customers.CustomersScreen
 import com.cady.cadysalesapp.ui.home.HomeScreen
+import com.cady.cadysalesapp.ui.invoice.InvoiceScreen
 import com.cady.cadysalesapp.ui.lock.LockScreen
 import com.cady.cadysalesapp.ui.login.LoginScreen
 import com.cady.cadysalesapp.ui.products.ProductsScreen
+import com.cady.cadysalesapp.ui.receipt.ReceiptScreen
 import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
 
 /**
@@ -108,8 +112,24 @@ fun CadyNavHost(
         }
         composable(CadyDestination.Products.route) { ProductsScreen() }
         composable(CadyDestination.Reports.route) { PlaceholderScreen("التقارير") }
-        composable(CadyDestination.Invoice.route) { PlaceholderScreen("فاتورة") }
-        composable(CadyDestination.Receipt.route) { PlaceholderScreen("سند قبض") }
+        composable(
+            CadyDestination.Invoice.route,
+            arguments = listOf(
+                navArgument("invoiceId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("customerId") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) {
+            InvoiceScreen(onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
+        }
+        composable(
+            CadyDestination.Receipt.route,
+            arguments = listOf(
+                navArgument("receiptId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("customerId") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) {
+            ReceiptScreen(onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
+        }
         composable(CadyDestination.DocumentsList.route) { PlaceholderScreen("سجل المستندات") }
         composable(CadyDestination.PdfPreview.route) { PlaceholderScreen("معاينة PDF") }
 

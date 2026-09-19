@@ -55,7 +55,11 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = { Text("كادي") },
-                actions = {
+                // navigationIcon (the START slot) lands on the visual right in
+                // this app's forced-RTL layout — actions would put it on the
+                // left instead, which is what actually shipped and is wrong
+                // per the agreed "top-right settings icon" decision.
+                navigationIcon = {
                     Icon(
                         imageVector = Icons.Filled.Settings,
                         contentDescription = "الإعدادات",
