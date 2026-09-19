@@ -221,6 +221,20 @@ class AccountRepository @Inject constructor(
         "createdAt" to Timestamp(createdAt.epochSecond, createdAt.nano),
     )
 
+    /**
+     * DocumentSnapshot.getLong(field) throws if the stored value isn't already
+     * a number type — which real data from the Dart/Firestore side can violate
+     * (confirmed live: "Field 'repNumber' is not a java.lang.Number" on an
+     * actual account). Reading the raw value and converting defensively avoids
+     * a single oddly-typed field breaking login entirely.
+     */
+    private fun DocumentSnapshot.intFieldFlexible(field: String): Int? =
+        when (val raw = get(field)) {
+            is Number -> raw.toInt()
+            is String -> raw.toIntOrNull()
+            else -> null
+        }
+
     private fun DocumentSnapshot.toUserAccountEntity(uid: String, fallbackUsername: String): UserAccountEntity {
         if (!exists()) {
             // Auth succeeded but there's no matching Firestore profile — a genuinely
@@ -235,7 +249,7 @@ class AccountRepository @Inject constructor(
             passwordHash = "", // never stored server-side; only meaningful in the local cache
             displayName = getString("displayName") ?: fallbackUsername,
             role = if (getString("role") == "manager") UserRole.MANAGER else UserRole.REP,
-            repNumber = getLong("repNumber")?.toInt(),
+            repNumber = intFieldFlexible("repNumber"),
             deviceName = getString("deviceName"),
             isActive = getBoolean("isActive") ?: true,
             lastSyncAt = getTimestamp("lastSyncAt")?.let { Instant.ofEpochSecond(it.seconds, it.nanoseconds.toLong()) },
