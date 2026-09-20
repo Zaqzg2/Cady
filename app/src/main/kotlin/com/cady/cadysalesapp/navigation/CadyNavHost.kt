@@ -72,6 +72,7 @@ fun CadyNavHost(
                 onNewReceipt = { navController.navigate(CadyDestination.Receipt.createRoute()) },
                 onNewCashCustomerSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
                 onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
+                onViewAllDocuments = { navController.navigate(CadyDestination.DocumentsList.route) },
                 bottomBar = { CadyBottomBar(navController) },
             )
         }
@@ -139,7 +140,11 @@ fun CadyNavHost(
         ) {
             ReceiptScreen(onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
         }
-        composable(CadyDestination.DocumentsList.route) { PlaceholderScreen("سجل المستندات") }
+        composable(CadyDestination.DocumentsList.route) {
+            com.cady.cadysalesapp.ui.documentslist.DocumentsListScreen(
+                onDocumentClick = { type, id -> navController.navigate(CadyDestination.PdfPreview.createRoute(type, id)) },
+            )
+        }
         composable(
             CadyDestination.PdfPreview.route,
             arguments = listOf(

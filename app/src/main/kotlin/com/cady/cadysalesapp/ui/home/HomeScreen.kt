@@ -47,6 +47,7 @@ fun HomeScreen(
     onNewReceipt: () -> Unit,
     onNewCashCustomerSale: () -> Unit,
     onSettingsClick: () -> Unit,
+    onViewAllDocuments: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -91,7 +92,19 @@ fun HomeScreen(
             }
 
             Spacer(Modifier.height(24.dp))
-            Text("آخر العمليات", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("آخر العمليات", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "عرض الكل",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { onViewAllDocuments() },
+                )
+            }
             Spacer(Modifier.height(8.dp))
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
