@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -154,8 +156,8 @@ fun PdfPreviewScreen(
                         Column {
                             Text(failed.message)
                             if (showDetails) {
-                                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    androidx.compose.foundation.lazy.items(failed.log) { line ->
+                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                    items(failed.log) { line ->
                                         Text(line, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }

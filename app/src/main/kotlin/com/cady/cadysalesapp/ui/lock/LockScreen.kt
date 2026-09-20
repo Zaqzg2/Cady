@@ -3,6 +3,7 @@ package com.cady.cadysalesapp.ui.lock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,7 +49,7 @@ fun LockScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             repeat(minOf(pin.length, MAX_PIN_LENGTH).coerceAtLeast(4)) { index ->
                 val filled = index < pin.length
-                androidx.compose.foundation.layout.Box(
+                Box(
                     modifier = Modifier
                         .size(12.dp)
                         .clip(CircleShape)
@@ -98,7 +99,7 @@ fun LockScreen(
 
 @Composable
 private fun NumPadKey(label: String, onClick: () -> Unit) {
-    androidx.compose.foundation.layout.Box(
+    Box(
         modifier = Modifier
             .size(64.dp)
             .clip(CircleShape)
