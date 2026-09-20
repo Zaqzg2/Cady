@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.pdf.PdfService
+import com.cady.cadysalesapp.data.printing.ThermalPrintService
 import com.cady.cadysalesapp.data.repository.CustomerRepository
 import com.cady.cadysalesapp.data.repository.InvoiceRepository
 import com.cady.cadysalesapp.data.repository.ReceiptRepository
@@ -22,11 +23,19 @@ sealed interface PdfPreviewState {
     data class Error(val message: String) : PdfPreviewState
 }
 
+sealed interface ThermalPrintState {
+    data object Idle : ThermalPrintState
+    data object Printing : ThermalPrintState
+    data object Success : ThermalPrintState
+    data class Failed(val message: String, val log: List<String>) : ThermalPrintState
+}
+
 @HiltViewModel
 class PdfPreviewViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context,
     private val pdfService: PdfService,
+    private val thermalPrintService: ThermalPrintService,
     private val invoiceRepository: InvoiceRepository,
     private val receiptRepository: ReceiptRepository,
     private val customerRepository: CustomerRepository,
@@ -37,6 +46,12 @@ class PdfPreviewViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<PdfPreviewState>(PdfPreviewState.Loading)
     val state: StateFlow<PdfPreviewState> = _state
+
+    private val _thermalPrintState = MutableStateFlow<ThermalPrintState>(ThermalPrintState.Idle)
+    val thermalPrintState: StateFlow<ThermalPrintState> = _thermalPrintState
+
+    val requiredBluetoothPermissions: Array<String> get() = thermalPrintService.requiredPermissions
+    fun hasBluetoothPermission(): Boolean = thermalPrintService.hasBluetoothPermission()
 
     init {
         generate()
@@ -71,5 +86,25 @@ class PdfPreviewViewModel @Inject constructor(
                 _state.value = PdfPreviewState.Error(e.message ?: "تعذّر إنشاء الملف")
             }
         }
+    }
+
+    fun printThermal() {
+        val file = (_state.value as? PdfPreviewState.Ready)?.file ?: return
+        _thermalPrintState.value = ThermalPrintState.Printing
+        viewModelScope.launch {
+            val ok = thermalPrintService.printPdfUsingSavedPrinter(file)
+            _thermalPrintState.value = if (ok) {
+                ThermalPrintState.Success
+            } else {
+                ThermalPrintState.Failed(
+                    message = thermalPrintService.lastError ?: "فشلت الطباعة",
+                    log = thermalPrintService.lastAttemptLog,
+                )
+            }
+        }
+    }
+
+    fun dismissThermalPrintResult() {
+        _thermalPrintState.value = ThermalPrintState.Idle
     }
 }

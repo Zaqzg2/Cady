@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
+import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -12,6 +13,8 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,14 +24,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,9 +59,16 @@ fun PdfPreviewScreen(
     viewModel: PdfPreviewViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val thermalPrintState by viewModel.thermalPrintState.collectAsState()
     val context = LocalContext.current
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf<String?>(null) }
+
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.all { it }) viewModel.printThermal()
+    }
 
     LaunchedEffect(state) {
         val file = (state as? PdfPreviewState.Ready)?.file ?: return@LaunchedEffect
@@ -69,6 +82,17 @@ fun PdfPreviewScreen(
             TopAppBar(
                 title = { Text("معاينة") },
                 actions = {
+                    IconButton(onClick = {
+                        if (viewModel.hasBluetoothPermission()) {
+                            viewModel.printThermal()
+                        } else if (viewModel.requiredBluetoothPermissions.isNotEmpty()) {
+                            bluetoothPermissionLauncher.launch(viewModel.requiredBluetoothPermissions)
+                        } else {
+                            viewModel.printThermal()
+                        }
+                    }) {
+                        Icon(Icons.Filled.Bluetooth, contentDescription = "طباعة حرارية")
+                    }
                     IconButton(onClick = {
                         val file = (state as? PdfPreviewState.Ready)?.file ?: return@IconButton
                         printPdf(context, file)
@@ -102,6 +126,46 @@ fun PdfPreviewScreen(
                     }
                 }
                 else -> CircularProgressIndicator()
+            }
+
+            if (thermalPrintState is ThermalPrintState.Printing) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("جارٍ الطباعة…") },
+                    text = { CircularProgressIndicator() },
+                    confirmButton = {},
+                )
+            }
+            if (thermalPrintState is ThermalPrintState.Success) {
+                AlertDialog(
+                    onDismissRequest = viewModel::dismissThermalPrintResult,
+                    title = { Text("تمت الطباعة ✓") },
+                    text = {},
+                    confirmButton = { TextButton(onClick = viewModel::dismissThermalPrintResult) { Text("حسنًا") } },
+                )
+            }
+            val failed = thermalPrintState as? ThermalPrintState.Failed
+            if (failed != null) {
+                var showDetails by remember { mutableStateOf(false) }
+                AlertDialog(
+                    onDismissRequest = viewModel::dismissThermalPrintResult,
+                    title = { Text("تعذّرت الطباعة") },
+                    text = {
+                        Column {
+                            Text(failed.message)
+                            if (showDetails) {
+                                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                    androidx.compose.foundation.lazy.items(failed.log) { line ->
+                                        Text(line, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            } else {
+                                TextButton(onClick = { showDetails = true }) { Text("التفاصيل") }
+                            }
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = viewModel::dismissThermalPrintResult) { Text("حسنًا") } },
+                )
             }
         }
     }

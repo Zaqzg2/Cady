@@ -155,9 +155,19 @@ fun CadyNavHost(
             com.cady.cadysalesapp.ui.pdfpreview.PdfPreviewScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(CadyDestination.SettingsHub.route) { PlaceholderScreen("الإعدادات") }
+        composable(CadyDestination.SettingsHub.route) {
+            com.cady.cadysalesapp.ui.settings.SettingsHubScreen(
+                onCompanyClick = { navController.navigate(CadyDestination.SettingsCompany.route) },
+                onPrintingClick = { navController.navigate(CadyDestination.SettingsPrinting.route) },
+                onAppearanceClick = { navController.navigate(CadyDestination.SettingsAppearance.route) },
+                onPrivacyClick = { navController.navigate(CadyDestination.SettingsPrivacy.route) },
+                onDataClick = { navController.navigate(CadyDestination.SettingsData.route) },
+                onSyncClick = { navController.navigate(CadyDestination.Sync.route) },
+                onBackupClick = { navController.navigate(CadyDestination.BackupManagement.route) },
+            )
+        }
         composable(CadyDestination.SettingsCompany.route) { PlaceholderScreen("بيانات الشركة") }
-        composable(CadyDestination.SettingsPrinting.route) { PlaceholderScreen("إعدادات الطباعة") }
+        composable(CadyDestination.SettingsPrinting.route) { com.cady.cadysalesapp.ui.settings.SettingsPrintingScreen() }
         composable(CadyDestination.SettingsAppearance.route) { PlaceholderScreen("المظهر") }
         composable(CadyDestination.SettingsPrivacy.route) { PlaceholderScreen("الخصوصية") }
         composable(CadyDestination.SettingsData.route) { PlaceholderScreen("حجم البيانات") }
