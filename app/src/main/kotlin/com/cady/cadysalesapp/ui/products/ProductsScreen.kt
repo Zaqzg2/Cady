@@ -34,13 +34,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.data.local.entity.ProductEntity
 
 @Composable
-fun ProductsScreen(viewModel: ProductsViewModel = hiltViewModel()) {
+fun ProductsScreen(
+    bottomBar: @Composable () -> Unit = {},
+    viewModel: ProductsViewModel = hiltViewModel(),
+) {
     val products by viewModel.products.collectAsState()
     var editingProduct by remember { mutableStateOf<ProductEntity?>(null) }
     var showDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("المنتجات") }) },
+        bottomBar = bottomBar,
         floatingActionButton = {
             FloatingActionButton(onClick = { editingProduct = null; showDialog = true }) {
                 Icon(Icons.Filled.Add, contentDescription = "إضافة منتج")

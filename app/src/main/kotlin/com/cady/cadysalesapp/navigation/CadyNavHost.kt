@@ -72,11 +72,13 @@ fun CadyNavHost(
                 onNewReceipt = { navController.navigate(CadyDestination.Receipt.createRoute()) },
                 onNewCashCustomerSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
                 onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
+                bottomBar = { CadyBottomBar(navController) },
             )
         }
         composable(CadyDestination.Customers.route) {
             CustomersScreen(
                 onCustomerClick = { id -> navController.navigate(CadyDestination.CustomerDetail.createRoute(id)) },
+                bottomBar = { CadyBottomBar(navController) },
             )
         }
         composable(CadyDestination.CustomerDetail.route) { backStackEntry ->
@@ -117,7 +119,7 @@ fun CadyNavHost(
                 onMapClick = { /* TODO(Phase 2 polish): geocode the address, launch geo: intent */ },
             )
         }
-        composable(CadyDestination.Products.route) { ProductsScreen() }
+        composable(CadyDestination.Products.route) { ProductsScreen(bottomBar = { CadyBottomBar(navController) }) }
         composable(CadyDestination.Reports.route) { PlaceholderScreen("التقارير") }
         composable(
             CadyDestination.Invoice.route,

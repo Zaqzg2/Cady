@@ -47,11 +47,13 @@ fun HomeScreen(
     onNewReceipt: () -> Unit,
     onNewCashCustomerSale: () -> Unit,
     onSettingsClick: () -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
+        bottomBar = bottomBar,
         topBar = {
             TopAppBar(
                 title = { Text("كادي") },

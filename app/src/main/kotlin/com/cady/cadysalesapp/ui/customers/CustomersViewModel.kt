@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -18,7 +19,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CustomersViewModel @Inject constructor(
-    accountRepository: AccountRepository,
+    private val accountRepository: AccountRepository,
     private val customerRepository: CustomerRepository,
 ) : ViewModel() {
 
@@ -41,5 +42,15 @@ class CustomersViewModel @Inject constructor(
 
     fun togglePin(customerId: String) {
         viewModelScope.launch { customerRepository.togglePin(customerId) }
+    }
+
+    fun createCustomer(name: String, phone: String?, address: String?, openingBalance: Double) {
+        viewModelScope.launch {
+            val user = accountRepository.currentUser.first() ?: return@launch
+            customerRepository.createCustomer(
+                ownerUid = user.id, name = name, phone = phone, address = address,
+                openingBalance = openingBalance, creditLimit = null, notes = null,
+            )
+        }
     }
 }
