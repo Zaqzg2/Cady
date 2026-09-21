@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.pdf.PdfService
 import com.cady.cadysalesapp.data.printing.ThermalPrintService
+import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import com.cady.cadysalesapp.data.repository.CustomerRepository
 import com.cady.cadysalesapp.data.repository.InvoiceRepository
 import com.cady.cadysalesapp.data.repository.ReceiptRepository
@@ -13,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -39,6 +41,7 @@ class PdfPreviewViewModel @Inject constructor(
     private val invoiceRepository: InvoiceRepository,
     private val receiptRepository: ReceiptRepository,
     private val customerRepository: CustomerRepository,
+    private val companySettingsRepository: CompanySettingsRepository,
 ) : ViewModel() {
 
     private val docType: String = checkNotNull(savedStateHandle["docType"])
@@ -63,16 +66,17 @@ class PdfPreviewViewModel @Inject constructor(
             try {
                 val pdfDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                 val outputFile = File(pdfDir, "$docType-$docId.pdf")
+                val company = companySettingsRepository.settings.first()
 
                 when (docType) {
                     "invoice" -> {
                         val invoice = invoiceRepository.getById(docId) ?: error("الفاتورة غير موجودة")
                         val items = invoiceRepository.getItems(docId)
-                        pdfService.generateInvoicePdf(invoice, items, outputFile)
+                        pdfService.generateInvoicePdf(invoice, items, company, outputFile)
                     }
                     "receipt" -> {
                         val receipt = receiptRepository.getById(docId) ?: error("السند غير موجود")
-                        pdfService.generateReceiptPdf(receipt, outputFile)
+                        pdfService.generateReceiptPdf(receipt, company, outputFile)
                     }
                     "statement" -> {
                         val customer = customerRepository.getById(docId) ?: error("العميل غير موجود")
@@ -92,7 +96,8 @@ class PdfPreviewViewModel @Inject constructor(
         val file = (_state.value as? PdfPreviewState.Ready)?.file ?: return
         _thermalPrintState.value = ThermalPrintState.Printing
         viewModelScope.launch {
-            val ok = thermalPrintService.printPdfUsingSavedPrinter(file)
+            val threshold = companySettingsRepository.settings.first().printBlackThreshold
+            val ok = thermalPrintService.printPdfUsingSavedPrinter(file, threshold)
             _thermalPrintState.value = if (ok) {
                 ThermalPrintState.Success
             } else {

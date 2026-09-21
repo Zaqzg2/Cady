@@ -11,6 +11,7 @@ import com.cady.cadysalesapp.data.local.entity.InvoiceEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceItemEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.local.entity.ReceiptEntity
+import com.cady.cadysalesapp.data.repository.CompanySettings
 import com.cady.cadysalesapp.domain.LedgerRow
 import com.cady.cadysalesapp.domain.computeInvoiceTotals
 import java.io.File
@@ -60,7 +61,7 @@ class PdfService @Inject constructor() {
 
     private fun money(value: Double) = "${moneyFormat.format(value)} ر.ي"
 
-    fun generateInvoicePdf(invoice: InvoiceEntity, items: List<InvoiceItemEntity>, outputFile: File) {
+    fun generateInvoicePdf(invoice: InvoiceEntity, items: List<InvoiceItemEntity>, company: CompanySettings, outputFile: File) {
         val document = PdfDocument()
         val page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create())
         val canvas = page.canvas
@@ -68,6 +69,9 @@ class PdfService @Inject constructor() {
         val contentWidth = pageWidth - margin * 2
         var y = margin
 
+        if (company.companyName.isNotBlank()) {
+            y += canvas.drawRtlText(company.companyName, right, y, contentWidth, boldPaint()) + 6f
+        }
         val title = if (invoice.kind == InvoiceKind.SALE) "فاتورة بيع" else "فاتورة مرتجع"
         y += canvas.drawRtlText(title, right, y, contentWidth, titlePaint()) + 8f
         y += canvas.drawRtlText("رقم: ${invoice.docNumber}", right, y, contentWidth, labelPaint()) + 4f
@@ -110,7 +114,10 @@ class PdfService @Inject constructor() {
         y += canvas.drawTotalsRow("الإجمالي", totals.grandTotal, right, y, contentWidth, boldPaint()) + 20f
 
         if (invoice.repName != null) {
-            canvas.drawRtlText("المندوب: ${invoice.repName}", right, y, contentWidth, labelPaint())
+            y += canvas.drawRtlText("المندوب: ${invoice.repName}", right, y, contentWidth, labelPaint()) + 4f
+        }
+        if (company.invoiceFooterText.isNotBlank()) {
+            canvas.drawRtlText(company.invoiceFooterText, right, y + 12f, contentWidth, labelPaint())
         }
 
         document.finishPage(page)
@@ -118,7 +125,7 @@ class PdfService @Inject constructor() {
         document.close()
     }
 
-    fun generateReceiptPdf(receipt: ReceiptEntity, outputFile: File) {
+    fun generateReceiptPdf(receipt: ReceiptEntity, company: CompanySettings, outputFile: File) {
         val document = PdfDocument()
         val page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create())
         val canvas = page.canvas
@@ -126,6 +133,9 @@ class PdfService @Inject constructor() {
         val contentWidth = pageWidth - margin * 2
         var y = margin
 
+        if (company.companyName.isNotBlank()) {
+            y += canvas.drawRtlText(company.companyName, right, y, contentWidth, boldPaint()) + 6f
+        }
         y += canvas.drawRtlText("سند قبض", right, y, contentWidth, titlePaint()) + 8f
         y += canvas.drawRtlText("رقم: ${receipt.docNumber}", right, y, contentWidth, labelPaint()) + 4f
         y += canvas.drawRtlText(dateFormat.format(receipt.date.atZone(java.time.ZoneId.systemDefault())), right, y, contentWidth, labelPaint()) + 4f

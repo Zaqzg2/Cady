@@ -166,9 +166,9 @@ fun CadyNavHost(
                 onBackupClick = { navController.navigate(CadyDestination.BackupManagement.route) },
             )
         }
-        composable(CadyDestination.SettingsCompany.route) { PlaceholderScreen("بيانات الشركة") }
+        composable(CadyDestination.SettingsCompany.route) { com.cady.cadysalesapp.ui.settings.SettingsCompanyScreen() }
         composable(CadyDestination.SettingsPrinting.route) { com.cady.cadysalesapp.ui.settings.SettingsPrintingScreen() }
-        composable(CadyDestination.SettingsAppearance.route) { PlaceholderScreen("المظهر") }
+        composable(CadyDestination.SettingsAppearance.route) { com.cady.cadysalesapp.ui.settings.SettingsAppearanceScreen() }
         composable(CadyDestination.SettingsPrivacy.route) { PlaceholderScreen("الخصوصية") }
         composable(CadyDestination.SettingsData.route) { PlaceholderScreen("حجم البيانات") }
 
