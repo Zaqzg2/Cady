@@ -2,6 +2,7 @@ package com.cady.cadysalesapp.data.repository
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -22,9 +23,17 @@ class AuthRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>,
 ) {
     private val passwordHashKey = stringPreferencesKey("app_lock_password_hash")
+    private val biometricEnabledKey = booleanPreferencesKey("biometric_unlock_enabled")
 
     val isPasswordSet: Flow<Boolean> =
         dataStore.data.map { prefs -> !prefs[passwordHashKey].isNullOrEmpty() }
+
+    val isBiometricEnabled: Flow<Boolean> =
+        dataStore.data.map { prefs -> prefs[biometricEnabledKey] ?: false }
+
+    suspend fun setBiometricEnabled(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[biometricEnabledKey] = enabled }
+    }
 
     suspend fun isPasswordSetNow(): Boolean = isPasswordSet.first()
 

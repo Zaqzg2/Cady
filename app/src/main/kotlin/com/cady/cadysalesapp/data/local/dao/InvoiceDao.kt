@@ -40,6 +40,9 @@ interface InvoiceDao {
     @Upsert
     suspend fun upsertAll(invoices: List<InvoiceEntity>)
 
+    @Query("SELECT COUNT(*) FROM invoices")
+    suspend fun count(): Int
+
     @Query("DELETE FROM invoices WHERE id = :id")
     suspend fun deleteById(id: String)
 }

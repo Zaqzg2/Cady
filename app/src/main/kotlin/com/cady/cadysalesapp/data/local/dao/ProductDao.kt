@@ -22,6 +22,9 @@ interface ProductDao {
     @Upsert
     suspend fun upsertAll(products: List<ProductEntity>)
 
+    @Query("SELECT COUNT(*) FROM products")
+    suspend fun count(): Int
+
     @Delete
     suspend fun delete(product: ProductEntity)
 }

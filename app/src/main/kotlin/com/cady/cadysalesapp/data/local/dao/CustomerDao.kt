@@ -35,6 +35,9 @@ interface CustomerDao {
     @Upsert
     suspend fun upsert(customer: CustomerEntity)
 
+    @Query("SELECT COUNT(*) FROM customers")
+    suspend fun count(): Int
+
     @Upsert
     suspend fun upsertAll(customers: List<CustomerEntity>)
 }

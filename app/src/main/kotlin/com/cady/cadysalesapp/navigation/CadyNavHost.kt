@@ -169,8 +169,8 @@ fun CadyNavHost(
         composable(CadyDestination.SettingsCompany.route) { com.cady.cadysalesapp.ui.settings.SettingsCompanyScreen() }
         composable(CadyDestination.SettingsPrinting.route) { com.cady.cadysalesapp.ui.settings.SettingsPrintingScreen() }
         composable(CadyDestination.SettingsAppearance.route) { com.cady.cadysalesapp.ui.settings.SettingsAppearanceScreen() }
-        composable(CadyDestination.SettingsPrivacy.route) { PlaceholderScreen("الخصوصية") }
-        composable(CadyDestination.SettingsData.route) { PlaceholderScreen("حجم البيانات") }
+        composable(CadyDestination.SettingsPrivacy.route) { com.cady.cadysalesapp.ui.settings.SettingsPrivacyScreen() }
+        composable(CadyDestination.SettingsData.route) { com.cady.cadysalesapp.ui.settings.SettingsDataScreen() }
 
         composable(CadyDestination.Sync.route) { PlaceholderScreen("المزامنة") }
         composable(CadyDestination.SyncPendingPreview.route) { PlaceholderScreen("معاينة المعلّق") }

@@ -37,6 +37,9 @@ interface ReceiptDao {
     @Upsert
     suspend fun upsertAll(receipts: List<ReceiptEntity>)
 
+    @Query("SELECT COUNT(*) FROM receipts")
+    suspend fun count(): Int
+
     @Query("DELETE FROM receipts WHERE id = :id")
     suspend fun deleteById(id: String)
 }

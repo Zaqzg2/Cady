@@ -100,6 +100,8 @@ dependencies {
     implementation(libs.firebase.firestore)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment.ktx)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)

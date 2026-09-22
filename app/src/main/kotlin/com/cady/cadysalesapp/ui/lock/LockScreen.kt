@@ -13,9 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 
 private const val MAX_PIN_LENGTH = 8
@@ -36,6 +43,16 @@ fun LockScreen(
 ) {
     var pin by remember { mutableStateOf("") }
     val error by viewModel.errorMessage.collectAsState()
+    val biometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val activity = LocalContext.current as? FragmentActivity
+
+    // Offer biometric immediately on arriving at the lock screen, not only on
+    // a manual tap — this is the actual point of enabling it in settings.
+    LaunchedEffect(biometricEnabled, activity) {
+        if (biometricEnabled && activity != null) {
+            viewModel.tryBiometric(activity, onUnlocked)
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -64,6 +81,18 @@ fun LockScreen(
         if (error != null) {
             Spacer(Modifier.height(12.dp))
             Text(error!!, color = MaterialTheme.colorScheme.error)
+        }
+
+        if (biometricEnabled) {
+            Spacer(Modifier.height(16.dp))
+            IconButton(onClick = { activity?.let { viewModel.tryBiometric(it, onUnlocked) } }) {
+                Icon(
+                    Icons.Filled.Fingerprint,
+                    contentDescription = "فتح بالبصمة",
+                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         Spacer(Modifier.height(32.dp))
