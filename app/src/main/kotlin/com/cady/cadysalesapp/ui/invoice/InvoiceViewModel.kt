@@ -11,6 +11,8 @@ import com.cady.cadysalesapp.data.local.entity.PaymentMode
 import com.cady.cadysalesapp.data.local.entity.ProductEntity
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
 import com.cady.cadysalesapp.data.repository.AccountRepository
+import com.cady.cadysalesapp.data.repository.CompanySettings
+import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import com.cady.cadysalesapp.data.repository.CustomerRepository
 import com.cady.cadysalesapp.data.repository.InvoiceLineInput
 import com.cady.cadysalesapp.data.repository.InvoiceRepository
@@ -49,9 +51,20 @@ data class InvoiceFormState(
     val discountPercent: String = "0",
     val discountAmount: String = "0",
     val notes: String = "",
-    /** Preserved from the original document when editing — never regenerated,
-        or every edit would silently reassign a new document number. */
-    val existingDocNumber: String? = null,
+    /** Editable document number — pre-filled with a suggestion (new invoice)
+        or the original number (editing). setKind() re-suggests it on a fresh
+        invoice only while it still matches the last auto-suggestion, so a
+        rep's own manual correction is never silently overwritten. */
+    val docNumber: String = "",
+    val date: Instant = Instant.now(),
+    /** Only set once the rep actually draws something this time; null means
+        "use the saved default signature, if any" at save time. */
+    val signaturePath: String? = null,
+    /** Customer's balance *before* this document's own effect — fetched once
+        when the customer is selected/loaded, then combined with the live
+        `totals` below so the balance-after preview updates on every keystroke
+        without a fresh DB query each time. Null while unknown/no customer. */
+    val customerBalanceBeforeThis: Double? = null,
 ) {
     /** Live totals recomputed from the current draft, reusing the exact same
         pure function InvoiceRepository uses at save time — the preview on
@@ -70,6 +83,18 @@ data class InvoiceFormState(
             )
             return computeInvoiceTotals(draftInvoice, items)
         }
+
+    /** Same balanceBeforeThis + effect math as InvoiceRepository.saveInvoice,
+        so the number shown here always matches what will actually be saved. */
+    val balanceAfterPreview: Double?
+        get() {
+            val before = customerBalanceBeforeThis ?: return null
+            val effect = when (kind) {
+                InvoiceKind.SALE -> totals.grandTotal
+                InvoiceKind.SALE_RETURN -> -totals.grandTotal
+            }
+            return before + effect
+        }
 }
 
 @HiltViewModel
@@ -78,11 +103,17 @@ class InvoiceViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val invoiceRepository: InvoiceRepository,
     private val customerRepository: CustomerRepository,
+    private val companySettingsRepository: CompanySettingsRepository,
     productRepository: ProductRepository,
 ) : ViewModel() {
 
     private val existingInvoiceId: String? = savedStateHandle.get<String>("invoiceId")?.takeIf { it.isNotBlank() }
     private val preselectedCustomerId: String? = savedStateHandle.get<String>("customerId")?.takeIf { it.isNotBlank() }
+
+    /** Tracks whether `docNumber` still equals the last value *we* suggested —
+        used by setKind() to know whether it's still safe to re-suggest, or
+        whether the rep has already typed their own number over it. */
+    private var lastSuggestedDocNumber: String? = null
 
     val products: StateFlow<List<ProductEntity>> = productRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -94,6 +125,11 @@ class InvoiceViewModel @Inject constructor(
         .flatMapLatest { user -> if (user == null) flowOf(emptyList()) else customerRepository.observeAll(user.id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** So the screen can show "leave blank to use the saved default" under the
+        signature pad only when a default actually exists. */
+    val companySettings: StateFlow<CompanySettings> = companySettingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CompanySettings())
+
     private val _form = MutableStateFlow(InvoiceFormState())
     val form: StateFlow<InvoiceFormState> = _form
 
@@ -102,14 +138,25 @@ class InvoiceViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            val currentUser = accountRepository.currentUser.first()
             when {
                 existingInvoiceId != null -> loadExistingInvoice(existingInvoiceId)
-                preselectedCustomerId != null -> {
-                    val customer = customerRepository.getById(preselectedCustomerId)
-                    _form.value = _form.value.copy(selectedCustomer = customer)
+                else -> {
+                    val customer = preselectedCustomerId?.let { customerRepository.getById(it) }
+                    val suggested = currentUser?.let {
+                        invoiceRepository.suggestNextDocNumber(it.id, _form.value.kind)
+                    }.orEmpty()
+                    lastSuggestedDocNumber = suggested
+                    _form.value = _form.value.copy(docNumber = suggested, selectedCustomer = customer)
+                    if (customer != null) refreshBalanceBefore(customer.id, excludeDocId = null)
                 }
             }
         }
+    }
+
+    private suspend fun refreshBalanceBefore(customerId: String, excludeDocId: String?) {
+        val before = customerRepository.computeBalance(customerId, excludeDocId = excludeDocId)
+        _form.value = _form.value.copy(customerBalanceBeforeThis = before)
     }
 
     private suspend fun loadExistingInvoice(id: String) {
@@ -126,12 +173,24 @@ class InvoiceViewModel @Inject constructor(
             discountPercent = invoice.discountPercent.toString(),
             discountAmount = invoice.discountAmount.toString(),
             notes = invoice.notes.orEmpty(),
-            existingDocNumber = invoice.docNumber,
+            docNumber = invoice.docNumber,
+            date = invoice.date,
+            signaturePath = invoice.signaturePath,
         )
+        if (customer != null) refreshBalanceBefore(customer.id, excludeDocId = id)
     }
 
     fun setKind(kind: InvoiceKind) {
-        _form.value = _form.value.copy(kind = kind)
+        val current = _form.value
+        _form.value = current.copy(kind = kind)
+        if (existingInvoiceId == null && current.docNumber == lastSuggestedDocNumber) {
+            viewModelScope.launch {
+                val currentUser = accountRepository.currentUser.first() ?: return@launch
+                val suggested = invoiceRepository.suggestNextDocNumber(currentUser.id, kind)
+                lastSuggestedDocNumber = suggested
+                _form.value = _form.value.copy(docNumber = suggested)
+            }
+        }
     }
 
     fun setPaymentMode(mode: PaymentMode) {
@@ -139,7 +198,8 @@ class InvoiceViewModel @Inject constructor(
     }
 
     fun selectCustomer(customer: CustomerEntity) {
-        _form.value = _form.value.copy(selectedCustomer = customer)
+        _form.value = _form.value.copy(selectedCustomer = customer, customerBalanceBeforeThis = null)
+        viewModelScope.launch { refreshBalanceBefore(customer.id, excludeDocId = existingInvoiceId) }
     }
 
     fun addLine(product: ProductEntity) {
@@ -178,7 +238,19 @@ class InvoiceViewModel @Inject constructor(
         _form.value = _form.value.copy(notes = value)
     }
 
-    fun save(onSuccess: () -> Unit) {
+    fun setDocNumber(value: String) {
+        _form.value = _form.value.copy(docNumber = value)
+    }
+
+    fun setDate(value: Instant) {
+        _form.value = _form.value.copy(date = value)
+    }
+
+    fun setSignaturePath(path: String?) {
+        _form.value = _form.value.copy(signaturePath = path)
+    }
+
+    fun save(onSuccess: (invoiceId: String) -> Unit) {
         val state = _form.value
         if (state.selectedCustomer == null) {
             _saveState.value = UiState.Error("اختر عميلًا أولًا")
@@ -186,6 +258,10 @@ class InvoiceViewModel @Inject constructor(
         }
         if (state.lines.isEmpty()) {
             _saveState.value = UiState.Error("أضف منتجًا واحدًا على الأقل")
+            return
+        }
+        if (state.docNumber.isBlank()) {
+            _saveState.value = UiState.Error("أدخل رقم الفاتورة")
             return
         }
         _saveState.value = UiState.Loading
@@ -197,11 +273,13 @@ class InvoiceViewModel @Inject constructor(
             }
             try {
                 val customer = state.selectedCustomer
-                invoiceRepository.saveInvoice(
+                val defaultSignature = companySettingsRepository.settings.first().repSignaturePath
+                val saved = invoiceRepository.saveInvoice(
                     ownerUid = currentUser.id,
                     repName = currentUser.displayName,
                     existingId = existingInvoiceId,
-                    docNumber = state.existingDocNumber ?: invoiceRepository.suggestNextDocNumber(currentUser.id, state.kind),
+                    docNumber = state.docNumber,
+                    date = state.date,
                     kind = state.kind,
                     customerId = customer.id,
                     customerName = customer.name,
@@ -210,10 +288,10 @@ class InvoiceViewModel @Inject constructor(
                     discountPercent = state.discountPercent.toDoubleOrNull() ?: 0.0,
                     discountAmount = state.discountAmount.toDoubleOrNull() ?: 0.0,
                     notes = state.notes.ifBlank { null },
-                    signaturePath = null, // TODO(polish pass): wire the real signature pad
+                    signaturePath = state.signaturePath ?: defaultSignature,
                 )
                 _saveState.value = UiState.Success
-                onSuccess()
+                onSuccess(saved.id)
             } catch (e: Exception) {
                 _saveState.value = UiState.Error("تعذّر الحفظ: ${e.message}")
             }

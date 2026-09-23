@@ -73,6 +73,7 @@ fun CadyNavHost(
                 onNewCashCustomerSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
                 onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
                 onViewAllDocuments = { navController.navigate(CadyDestination.DocumentsList.route) },
+                onDocumentClick = { type, id -> navController.navigate(CadyDestination.PdfPreview.createRoute(type, id)) },
                 bottomBar = { CadyBottomBar(navController) },
             )
         }
@@ -129,7 +130,14 @@ fun CadyNavHost(
                 navArgument("customerId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
-            InvoiceScreen(onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
+            InvoiceScreen(
+                onSaved = { invoiceId ->
+                    navController.navigate(CadyDestination.PdfPreview.createRoute("invoice", invoiceId)) {
+                        popUpTo(CadyDestination.Invoice.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+            )
         }
         composable(
             CadyDestination.Receipt.route,

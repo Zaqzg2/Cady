@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.cady.cadysalesapp.ui.common.UiState
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -62,6 +64,7 @@ fun PdfPreviewScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val thermalPrintState by viewModel.thermalPrintState.collectAsState()
+    val downloadState by viewModel.downloadState.collectAsState()
     val context = LocalContext.current
     var pageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderError by remember { mutableStateOf<String?>(null) }
@@ -71,6 +74,12 @@ fun PdfPreviewScreen(
     ) { results ->
         if (results.values.all { it }) viewModel.printThermal()
     }
+
+    // Storage Access Framework: the user picks the destination folder/name
+    // themselves, so no WRITE_EXTERNAL_STORAGE-style permission is needed.
+    val downloadLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri -> if (uri != null) viewModel.downloadTo(uri) }
 
     LaunchedEffect(state) {
         val file = (state as? PdfPreviewState.Ready)?.file ?: return@LaunchedEffect
@@ -112,6 +121,12 @@ fun PdfPreviewScreen(
                         context.startActivity(Intent.createChooser(intent, "مشاركة"))
                     }) {
                         Icon(Icons.Filled.Share, contentDescription = "مشاركة")
+                    }
+                    IconButton(onClick = {
+                        val file = (state as? PdfPreviewState.Ready)?.file ?: return@IconButton
+                        downloadLauncher.launch(file.name)
+                    }) {
+                        Icon(Icons.Filled.Download, contentDescription = "تحميل")
                     }
                 },
             )
@@ -167,6 +182,31 @@ fun PdfPreviewScreen(
                         }
                     },
                     confirmButton = { TextButton(onClick = viewModel::dismissThermalPrintResult) { Text("حسنًا") } },
+                )
+            }
+            if (downloadState is UiState.Loading) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("جارٍ الحفظ…") },
+                    text = { CircularProgressIndicator() },
+                    confirmButton = {},
+                )
+            }
+            if (downloadState is UiState.Success) {
+                AlertDialog(
+                    onDismissRequest = viewModel::dismissDownloadResult,
+                    title = { Text("تم الحفظ ✓") },
+                    text = {},
+                    confirmButton = { TextButton(onClick = viewModel::dismissDownloadResult) { Text("حسنًا") } },
+                )
+            }
+            val downloadError = downloadState as? UiState.Error
+            if (downloadError != null) {
+                AlertDialog(
+                    onDismissRequest = viewModel::dismissDownloadResult,
+                    title = { Text("تعذّر الحفظ") },
+                    text = { Text(downloadError.message) },
+                    confirmButton = { TextButton(onClick = viewModel::dismissDownloadResult) { Text("حسنًا") } },
                 )
             }
         }

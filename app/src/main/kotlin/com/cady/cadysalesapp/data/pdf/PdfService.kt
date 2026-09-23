@@ -10,6 +10,7 @@ import android.text.TextPaint
 import com.cady.cadysalesapp.data.local.entity.InvoiceEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceItemEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
+import com.cady.cadysalesapp.data.local.entity.PaymentMode
 import com.cady.cadysalesapp.data.local.entity.ReceiptEntity
 import com.cady.cadysalesapp.data.repository.CompanySettings
 import com.cady.cadysalesapp.domain.LedgerRow
@@ -192,5 +193,248 @@ class PdfService @Inject constructor() {
         val h1 = drawRtlText(label, right, y, width * 0.5f, paint)
         val h2 = drawRtlText(money(value), right - width * 0.5f, y, width * 0.5f, paint)
         return maxOf(h1, h2) + 6f
+    }
+
+    // ---- 80mm thermal-receipt layout ----
+    // 80mm at 72dpi ≈ 227pt. Unlike the A4 functions above, the page height
+    // here is NOT fixed — real receipt paper is a continuous roll, so every
+    // page below is sized to exactly fit its own content via a two-pass
+    // measure-then-draw: each `layout(canvas)` local function runs once with
+    // canvas == null (StaticLayout measurement only, no page exists yet to
+    // draw into) to compute the exact height needed, then once for real
+    // against a page created at that height. Same content, same code path,
+    // so the two passes can never disagree about how tall anything is —
+    // and it naturally prints every row on one continuous page instead of
+    // needing the A4 statement's page-break handling at all.
+
+    private val thermalPageWidth = 227
+    private val thermalMargin = 10f
+
+    private fun thermalTitlePaint(scale: Float) = TextPaint().apply { textSize = 15f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
+    private fun thermalLabelPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; color = 0xFF000000.toInt() }
+    private fun thermalBodyPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; color = 0xFF000000.toInt() }
+    private fun thermalBoldPaint(scale: Float) = TextPaint().apply { textSize = 12f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
+
+    /** Same StaticLayout the real drawRtlText uses, minus the actual canvas
+        draw call — a pure measurement so the pre-pass can size the page
+        without a page/canvas existing yet. */
+    private fun measureTextHeight(text: String, width: Float, paint: TextPaint): Float {
+        val layout = StaticLayout.Builder
+            .obtain(text, 0, text.length, paint, width.toInt().coerceAtLeast(1))
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setTextDirection(TextDirectionHeuristics.RTL)
+            .build()
+        return layout.height.toFloat()
+    }
+
+    private fun loadBitmapOrNull(path: String?): android.graphics.Bitmap? =
+        path?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
+
+    /** Draws [bitmap] right-aligned at [y], capped at [maxHeight], preserving
+        aspect ratio; returns the height actually used (0 if canvas is null —
+        measurement pass still needs the real height to advance y by). */
+    private fun Canvas?.drawRightAlignedBitmap(bitmap: android.graphics.Bitmap, right: Float, y: Float, maxHeight: Float): Float {
+        val height = (bitmap.height.toFloat()).coerceAtMost(maxHeight)
+        val width = height * bitmap.width / bitmap.height
+        if (this != null) {
+            drawBitmap(
+                bitmap, null,
+                android.graphics.RectF(right - width, y, right, y + height),
+                null,
+            )
+        }
+        return height
+    }
+
+    fun generateInvoicePdf80mm(
+        invoice: InvoiceEntity,
+        items: List<InvoiceItemEntity>,
+        company: CompanySettings,
+        customerPhone: String?,
+        outputFile: File,
+    ) {
+        val contentWidth = thermalPageWidth - thermalMargin * 2
+        val scale = company.printFontScale.takeIf { it > 0f } ?: 1.0f
+        val lineGap = company.printLineSpacingExtra.coerceAtLeast(0f)
+        val logo = loadBitmapOrNull(company.companyLogoPath)
+        val signature = loadBitmapOrNull(invoice.signaturePath)
+
+        fun layout(canvas: Canvas?): Float {
+            var y = thermalMargin
+            fun text(value: String, paint: TextPaint, gapAfter: Float = 4f) {
+                val h = if (canvas != null) {
+                    canvas.drawRtlText(value, thermalPageWidth - thermalMargin, y, contentWidth, paint)
+                } else {
+                    measureTextHeight(value, contentWidth, paint)
+                }
+                y += h + gapAfter + lineGap
+            }
+
+            if (logo != null) {
+                y += canvas.drawRightAlignedBitmap(logo, thermalPageWidth - thermalMargin, y, 70f) + 6f
+            }
+            if (company.companyName.isNotBlank()) text(company.companyName, thermalBoldPaint(scale))
+            if (company.companyAddress.isNotBlank()) text(company.companyAddress, thermalLabelPaint(scale))
+            if (company.companyPhone.isNotBlank()) text("هاتف: ${company.companyPhone}", thermalLabelPaint(scale))
+            y += 4f
+
+            val title = if (invoice.kind == InvoiceKind.SALE) "فاتورة بيع" else "فاتورة مرتجع"
+            text(title, thermalTitlePaint(scale))
+            text("رقم: ${invoice.docNumber}", thermalLabelPaint(scale))
+            text(dateFormat.format(invoice.date.atZone(java.time.ZoneId.systemDefault())), thermalLabelPaint(scale))
+            text(if (invoice.paymentMode == PaymentMode.CASH) "نقدًا" else "آجل", thermalLabelPaint(scale))
+            text("العميل: ${invoice.customerName}", thermalBodyPaint(scale))
+            if (!customerPhone.isNullOrBlank()) text("هاتف العميل: $customerPhone", thermalLabelPaint(scale))
+            y += 4f
+
+            items.forEach { item ->
+                text(item.productName, thermalBodyPaint(scale), gapAfter = 1f)
+                text("  ${item.quantity} × ${money(item.price)} = ${money(item.price * item.quantity)}", thermalLabelPaint(scale))
+            }
+
+            y += 4f
+            if (canvas != null) {
+                canvas.drawLine(thermalMargin, y, thermalPageWidth - thermalMargin, y, Paint().apply { strokeWidth = 1f; color = 0xFF000000.toInt() })
+            }
+            y += 8f
+
+            val totals = computeInvoiceTotals(invoice, items)
+            text("المجموع الفرعي: ${money(totals.subTotal)}", thermalBodyPaint(scale))
+            if (totals.discountValue > 0) text("الخصم: ${money(totals.discountValue)}", thermalBodyPaint(scale))
+            text("الإجمالي: ${money(totals.grandTotal)}", thermalBoldPaint(scale), gapAfter = 8f)
+            text("الرصيد بعد هذه العملية: ${money(invoice.balanceAfter)}", thermalBoldPaint(scale), gapAfter = 8f)
+
+            val repLabel = company.repDisplayName.ifBlank { invoice.repName.orEmpty() }
+            if (repLabel.isNotBlank()) text("المندوب: $repLabel", thermalLabelPaint(scale))
+
+            if (signature != null) {
+                y += canvas.drawRightAlignedBitmap(signature, thermalPageWidth - thermalMargin, y, 50f) + 4f
+            }
+
+            if (company.invoiceFooterText.isNotBlank()) {
+                y += 4f
+                text(company.invoiceFooterText, thermalLabelPaint(scale))
+            }
+
+            return y + thermalMargin
+        }
+
+        val totalHeight = layout(null).toInt().coerceAtLeast(200)
+        val document = PdfDocument()
+        val page = document.startPage(PdfDocument.PageInfo.Builder(thermalPageWidth, totalHeight, 1).create())
+        layout(page.canvas)
+        document.finishPage(page)
+        FileOutputStream(outputFile).use { document.writeTo(it) }
+        document.close()
+    }
+
+    fun generateReceiptPdf80mm(receipt: ReceiptEntity, company: CompanySettings, outputFile: File) {
+        val contentWidth = thermalPageWidth - thermalMargin * 2
+        val scale = company.printFontScale.takeIf { it > 0f } ?: 1.0f
+        val lineGap = company.printLineSpacingExtra.coerceAtLeast(0f)
+        val logo = loadBitmapOrNull(company.companyLogoPath)
+        val signature = loadBitmapOrNull(receipt.repSignaturePath)
+
+        fun layout(canvas: Canvas?): Float {
+            var y = thermalMargin
+            fun text(value: String, paint: TextPaint, gapAfter: Float = 4f) {
+                val h = if (canvas != null) {
+                    canvas.drawRtlText(value, thermalPageWidth - thermalMargin, y, contentWidth, paint)
+                } else {
+                    measureTextHeight(value, contentWidth, paint)
+                }
+                y += h + gapAfter + lineGap
+            }
+
+            if (logo != null) {
+                y += canvas.drawRightAlignedBitmap(logo, thermalPageWidth - thermalMargin, y, 70f) + 6f
+            }
+            if (company.companyName.isNotBlank()) text(company.companyName, thermalBoldPaint(scale))
+            if (company.companyAddress.isNotBlank()) text(company.companyAddress, thermalLabelPaint(scale))
+            if (company.companyPhone.isNotBlank()) text("هاتف: ${company.companyPhone}", thermalLabelPaint(scale))
+            y += 4f
+
+            text("سند قبض", thermalTitlePaint(scale))
+            text("رقم: ${receipt.docNumber}", thermalLabelPaint(scale))
+            text(dateFormat.format(receipt.date.atZone(java.time.ZoneId.systemDefault())), thermalLabelPaint(scale))
+            text("العميل: ${receipt.customerName}", thermalBodyPaint(scale))
+            y += 4f
+            text("استلمنا من السيد/ة أعلاه مبلغ:", thermalBodyPaint(scale))
+            text(money(receipt.amount), thermalTitlePaint(scale), gapAfter = 8f)
+            text("الرصيد بعد هذه العملية: ${money(receipt.balanceAfter)}", thermalBoldPaint(scale), gapAfter = 8f)
+            receipt.notes?.takeIf { it.isNotBlank() }?.let { text("ملاحظات: $it", thermalBodyPaint(scale)) }
+
+            val repLabel = company.repDisplayName.ifBlank { receipt.repName.orEmpty() }
+            if (repLabel.isNotBlank()) text("المندوب: $repLabel", thermalLabelPaint(scale))
+
+            if (signature != null) {
+                y += canvas.drawRightAlignedBitmap(signature, thermalPageWidth - thermalMargin, y, 50f) + 4f
+            }
+
+            if (company.invoiceFooterText.isNotBlank()) {
+                y += 4f
+                text(company.invoiceFooterText, thermalLabelPaint(scale))
+            }
+
+            return y + thermalMargin
+        }
+
+        val totalHeight = layout(null).toInt().coerceAtLeast(200)
+        val document = PdfDocument()
+        val page = document.startPage(PdfDocument.PageInfo.Builder(thermalPageWidth, totalHeight, 1).create())
+        layout(page.canvas)
+        document.finishPage(page)
+        FileOutputStream(outputFile).use { document.writeTo(it) }
+        document.close()
+    }
+
+    fun generateStatementPdf80mm(customerName: String, rows: List<LedgerRow>, outputFile: File) {
+        val contentWidth = thermalPageWidth - thermalMargin * 2
+
+        fun layout(canvas: Canvas?): Float {
+            var y = thermalMargin
+            fun text(value: String, paint: TextPaint, gapAfter: Float = 4f): Float {
+                val h = if (canvas != null) {
+                    canvas.drawRtlText(value, thermalPageWidth - thermalMargin, y, contentWidth, paint)
+                } else {
+                    measureTextHeight(value, contentWidth, paint)
+                }
+                y += h + gapAfter
+                return h
+            }
+
+            text("كشف حساب", thermalTitlePaint(1f), gapAfter = 8f)
+            text(customerName, thermalBodyPaint(1f), gapAfter = 8f)
+            if (canvas != null) {
+                canvas.drawLine(thermalMargin, y, thermalPageWidth - thermalMargin, y, Paint().apply { strokeWidth = 1f; color = 0xFF000000.toInt() })
+            }
+            y += 8f
+
+            rows.forEach { row ->
+                text(row.description, thermalBodyPaint(1f), gapAfter = 1f)
+                val movement = when {
+                    row.debit > 0 -> "مدين ${money(row.debit)}"
+                    row.credit > 0 -> "دائن ${money(row.credit)}"
+                    else -> ""
+                }
+                val secondLine = if (movement.isBlank()) {
+                    "الرصيد: ${money(row.runningBalance)}"
+                } else {
+                    "$movement — الرصيد: ${money(row.runningBalance)}"
+                }
+                text(secondLine, thermalLabelPaint(1f), gapAfter = 6f)
+            }
+
+            return y + thermalMargin
+        }
+
+        val totalHeight = layout(null).toInt().coerceAtLeast(200)
+        val document = PdfDocument()
+        val page = document.startPage(PdfDocument.PageInfo.Builder(thermalPageWidth, totalHeight, 1).create())
+        layout(page.canvas)
+        document.finishPage(page)
+        FileOutputStream(outputFile).use { document.writeTo(it) }
+        document.close()
     }
 }

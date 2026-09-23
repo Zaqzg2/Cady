@@ -45,6 +45,7 @@ class InvoiceRepository @Inject constructor(
         repName: String?,
         existingId: String?,
         docNumber: String,
+        date: Instant = Instant.now(),
         kind: InvoiceKind,
         customerId: String,
         customerName: String,
@@ -73,7 +74,7 @@ class InvoiceRepository @Inject constructor(
         }
         val totals = computeInvoiceTotals(
             invoice = InvoiceEntity(
-                id = id, docNumber = docNumber, date = Instant.now(), kind = kind, customerId = customerId,
+                id = id, docNumber = docNumber, date = date, kind = kind, customerId = customerId,
                 customerName = customerName, paymentMode = paymentMode, discountPercent = discountPercent,
                 discountAmount = discountAmount, notes = notes, signaturePath = signaturePath, repName = repName,
                 balanceAfter = 0.0, isPrinted = false, isShared = false, isPinned = false,
@@ -89,7 +90,7 @@ class InvoiceRepository @Inject constructor(
         val invoice = InvoiceEntity(
             id = id,
             docNumber = docNumber,
-            date = Instant.now(),
+            date = date,
             kind = kind,
             customerId = customerId,
             customerName = customerName,

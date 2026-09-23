@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown as the window background from the moment the process starts until
+     Compose draws its first frame (see themes.xml). Reuses the same red +
+     receipt-glyph mark as the launcher icon so cold start reads as "كادي is
+     opening" instead of a blank white rectangle — the ~10s gap the screen
+     recording showed (Firebase's own startup init + an unminified debug
+     build) is still there, but it no longer looks like the app is stuck or
+     broken while it happens. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+    <item
+        android:width="96dp"
+        android:height="96dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#FFC62828" />
+        </shape>
+    </item>
+    <item
+        android:width="56dp"
+        android:height="56dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>

@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.printing.BluetoothPrinterBridge
 import com.cady.cadysalesapp.data.printing.ThermalPrintService
+import com.cady.cadysalesapp.data.repository.CompanySettings
+import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
+import com.cady.cadysalesapp.data.repository.PdfLayoutMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,7 +25,11 @@ sealed interface ConnectionCheckState {
 @HiltViewModel
 class SettingsPrintingViewModel @Inject constructor(
     private val thermalPrintService: ThermalPrintService,
+    private val companySettingsRepository: CompanySettingsRepository,
 ) : ViewModel() {
+
+    val settings: StateFlow<CompanySettings> = companySettingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CompanySettings())
 
     val savedPrinterMac: StateFlow<String?> = thermalPrintService.savedPrinterMac
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -59,5 +66,21 @@ class SettingsPrintingViewModel @Inject constructor(
                 ConnectionCheckState.Failed(thermalPrintService.lastError ?: "تعذّر التحقق من الاتصال")
             }
         }
+    }
+
+    fun setLayoutMode(mode: PdfLayoutMode) {
+        viewModelScope.launch { companySettingsRepository.updatePrintLayoutMode(mode) }
+    }
+
+    fun setPrintFontScale(scale: Float) {
+        viewModelScope.launch { companySettingsRepository.updatePrintFontScale(scale) }
+    }
+
+    fun setPrintLineSpacingExtra(extra: Float) {
+        viewModelScope.launch { companySettingsRepository.updatePrintLineSpacingExtra(extra) }
+    }
+
+    fun setBlackThreshold(threshold: Int) {
+        viewModelScope.launch { companySettingsRepository.updatePrintBlackThreshold(threshold) }
     }
 }
