@@ -4,6 +4,7 @@ import com.cady.cadysalesapp.data.local.dao.ReceiptDao
 import com.cady.cadysalesapp.data.local.entity.ReceiptEntity
 import com.cady.cadysalesapp.data.local.entity.ReceiptMethod
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
+import com.cady.cadysalesapp.data.sync.SyncRepository
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 import java.util.UUID
@@ -14,6 +15,7 @@ import javax.inject.Singleton
 class ReceiptRepository @Inject constructor(
     private val receiptDao: ReceiptDao,
     private val customerRepository: CustomerRepository,
+    private val syncRepository: SyncRepository,
 ) {
     fun observeAll(ownerUid: String): Flow<List<ReceiptEntity>> = receiptDao.observeAll(ownerUid)
 
@@ -62,16 +64,25 @@ class ReceiptRepository @Inject constructor(
             ownerUid = ownerUid,
         )
         receiptDao.upsert(receipt)
+        syncRepository.pushReceipt(receipt)
         return receipt
     }
 
     suspend fun deleteReceipt(id: String) = receiptDao.deleteById(id)
 
     suspend fun markPrinted(id: String) {
-        receiptDao.getById(id)?.let { receiptDao.upsert(it.copy(isPrinted = true)) }
+        receiptDao.getById(id)?.let {
+            val updated = it.copy(isPrinted = true)
+            receiptDao.upsert(updated)
+            syncRepository.pushReceipt(updated)
+        }
     }
 
     suspend fun togglePin(id: String) {
-        receiptDao.getById(id)?.let { receiptDao.upsert(it.copy(isPinned = !it.isPinned)) }
+        receiptDao.getById(id)?.let {
+            val updated = it.copy(isPinned = !it.isPinned)
+            receiptDao.upsert(updated)
+            syncRepository.pushReceipt(updated)
+        }
     }
 }

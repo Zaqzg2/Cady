@@ -44,6 +44,7 @@ class AccountRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val userAccountDao: UserAccountDao,
     private val dataStore: DataStore<Preferences>,
+    private val syncRepository: com.cady.cadysalesapp.data.sync.SyncRepository,
     @ApplicationContext private val appContext: Context,
 ) {
     private val currentUserIdKey = stringPreferencesKey("current_user_id")
@@ -106,9 +107,16 @@ class AccountRepository @Inject constructor(
                 .copy(passwordHash = sha256(password))
             userAccountDao.upsert(account)
             setCurrentUserId(account.id)
-            // TODO(Phase 6): kick off SyncRepository.pullFromFirestore() here once it
-            // exists, mirroring AccountService's post-login full pull so a fresh
-            // install/reinstall repopulates Room immediately.
+            // Full pull so a fresh install/reinstall repopulates Room immediately
+            // — awaited (not fire-and-forget like the write-side pushes) so the
+            // person doesn't land on an empty Home screen right after logging in
+            // on a new device.
+            try {
+                syncRepository.pullFromFirestore(account.id, isManager = account.role == UserRole.MANAGER)
+            } catch (e: Exception) {
+                // Non-fatal — local cache (if any) still works, and later manual/
+                // automatic sync attempts will retry this.
+            }
             account
         } catch (e: FirebaseNetworkException) {
             loginOffline(username, password)

@@ -7,6 +7,7 @@ import com.cady.cadysalesapp.data.local.entity.InvoiceItemEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.local.entity.PaymentMode
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
+import com.cady.cadysalesapp.data.sync.SyncRepository
 import com.cady.cadysalesapp.domain.computeInvoiceTotals
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -21,6 +22,7 @@ class InvoiceRepository @Inject constructor(
     private val invoiceDao: InvoiceDao,
     private val invoiceItemDao: InvoiceItemDao,
     private val customerRepository: CustomerRepository,
+    private val syncRepository: SyncRepository,
 ) {
     fun observeAll(ownerUid: String): Flow<List<InvoiceEntity>> = invoiceDao.observeAll(ownerUid)
 
@@ -110,16 +112,28 @@ class InvoiceRepository @Inject constructor(
         invoiceDao.upsert(invoice)
         invoiceItemDao.deleteForInvoice(id)
         invoiceItemDao.upsertAll(items)
+        syncRepository.pushInvoice(invoice, items)
         return invoice
     }
 
     suspend fun deleteInvoice(id: String) = invoiceDao.deleteById(id)
+    // TODO(Phase 6 polish): also push a Firestore delete — same gap as
+    // ProductRepository.deleteProduct, deleting locally doesn't yet remove
+    // the synced copy other devices already pulled.
 
     suspend fun markPrinted(id: String) {
-        invoiceDao.getById(id)?.let { invoiceDao.upsert(it.copy(isPrinted = true)) }
+        invoiceDao.getById(id)?.let {
+            val updated = it.copy(isPrinted = true)
+            invoiceDao.upsert(updated)
+            syncRepository.pushInvoice(updated, invoiceItemDao.getForInvoice(id))
+        }
     }
 
     suspend fun togglePin(id: String) {
-        invoiceDao.getById(id)?.let { invoiceDao.upsert(it.copy(isPinned = !it.isPinned)) }
+        invoiceDao.getById(id)?.let {
+            val updated = it.copy(isPinned = !it.isPinned)
+            invoiceDao.upsert(updated)
+            syncRepository.pushInvoice(updated, invoiceItemDao.getForInvoice(id))
+        }
     }
 }

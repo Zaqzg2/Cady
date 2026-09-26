@@ -7,6 +7,7 @@ import com.cady.cadysalesapp.data.local.dao.ReceiptDao
 import com.cady.cadysalesapp.data.local.entity.CustomerEntity
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
+import com.cady.cadysalesapp.data.sync.SyncRepository
 import com.cady.cadysalesapp.domain.LedgerRow
 import com.cady.cadysalesapp.domain.computeInvoiceTotals
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +22,7 @@ class CustomerRepository @Inject constructor(
     private val invoiceDao: InvoiceDao,
     private val invoiceItemDao: InvoiceItemDao,
     private val receiptDao: ReceiptDao,
+    private val syncRepository: SyncRepository,
 ) {
     fun observeAll(ownerUid: String): Flow<List<CustomerEntity>> = customerDao.observeAll(ownerUid)
 
@@ -55,23 +57,28 @@ class CustomerRepository @Inject constructor(
             ownerUid = ownerUid,
         )
         customerDao.upsert(customer)
+        syncRepository.pushCustomer(customer)
         return customer
     }
 
     suspend fun updateCustomer(customer: CustomerEntity) {
-        customerDao.upsert(customer.copy(syncStatus = SyncStatus.PENDING, updatedAt = Instant.now()))
+        val updated = customer.copy(syncStatus = SyncStatus.PENDING, updatedAt = Instant.now())
+        customerDao.upsert(updated)
+        syncRepository.pushCustomer(updated)
     }
 
     suspend fun togglePin(customerId: String) {
         val customer = customerDao.getById(customerId) ?: return
-        customerDao.upsert(
-            customer.copy(isPinned = !customer.isPinned, syncStatus = SyncStatus.PENDING, updatedAt = Instant.now())
-        )
+        val updated = customer.copy(isPinned = !customer.isPinned, syncStatus = SyncStatus.PENDING, updatedAt = Instant.now())
+        customerDao.upsert(updated)
+        syncRepository.pushCustomer(updated)
     }
 
     suspend fun setActive(customerId: String, isActive: Boolean) {
         val customer = customerDao.getById(customerId) ?: return
-        customerDao.upsert(customer.copy(isActive = isActive, syncStatus = SyncStatus.PENDING, updatedAt = Instant.now()))
+        val updated = customer.copy(isActive = isActive, syncStatus = SyncStatus.PENDING, updatedAt = Instant.now())
+        customerDao.upsert(updated)
+        syncRepository.pushCustomer(updated)
     }
 
     /**
