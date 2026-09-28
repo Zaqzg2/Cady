@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,10 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -38,20 +43,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.local.entity.PaymentMode
+import com.cady.cadysalesapp.data.local.entity.ProductEntity
 import com.cady.cadysalesapp.ui.common.LocalFileImage
 import com.cady.cadysalesapp.ui.common.SignaturePad
 import com.cady.cadysalesapp.ui.common.UiState
+import com.cady.cadysalesapp.ui.common.formatMoney
+import com.cady.cadysalesapp.ui.common.formatQuantity
 import com.cady.cadysalesapp.ui.common.rememberSignaturePadState
 import java.io.File
 import java.time.LocalDate
@@ -71,7 +85,6 @@ fun InvoiceScreen(
     val companySettings by viewModel.companySettings.collectAsState()
 
     var showCustomerPicker by remember { mutableStateOf(false) }
-    var showProductPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val signatureState = rememberSignaturePadState()
@@ -86,6 +99,7 @@ fun InvoiceScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -157,62 +171,54 @@ fun InvoiceScreen(
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("الأصناف", style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { showProductPicker = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "إضافة صنف")
-                }
+            Text("المنتجات", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (products.isEmpty()) {
+                Text(
+                    "لا توجد منتجات بعد — أضفها من تبويب المنتجات",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                ProductGrid(
+                    products = products,
+                    quantities = form.lines.associate { it.productId to it.quantity },
+                    onProductClick = viewModel::addLine,
+                )
             }
 
-            LazyColumn(modifier = Modifier.weight(1f, fill = false).fillMaxWidth()) {
-                items(form.lines, key = { it.key }) { line ->
-                    val product = products.firstOrNull { it.id == line.productId }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
+            if (form.lines.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text("الأصناف المضافة", style = MaterialTheme.typography.titleMedium)
+                form.lines.forEach { line ->
+                    key(line.key) {
+                        val product = products.firstOrNull { it.id == line.productId }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (product?.imagePath != null) {
-                                LocalFileImage(
-                                    path = product.imagePath,
-                                    contentDescription = line.productName,
-                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-                                )
-                            } else {
+                            ProductIconCircle(imagePath = product?.imagePath, name = line.productName, size = 40.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(line.productName)
                                 Text(
-                                    line.productName.take(1),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    "${formatMoney(line.price)} × ${formatQuantity(line.quantity)}",
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(line.productName)
-                            Text(
-                                "${line.price} × ${line.quantity}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            OutlinedTextField(
+                                value = formatQuantity(line.quantity),
+                                onValueChange = { viewModel.updateLineQuantity(line.key, it.toDoubleOrNull() ?: line.quantity) },
+                                modifier = Modifier.width(70.dp),
+                                singleLine = true,
                             )
+                            IconButton(onClick = { viewModel.removeLine(line.key) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "حذف")
+                            }
                         }
-                        OutlinedTextField(
-                            value = line.quantity.toString(),
-                            onValueChange = { viewModel.updateLineQuantity(line.key, it.toDoubleOrNull() ?: line.quantity) },
-                            modifier = Modifier.width(70.dp),
-                            singleLine = true,
-                        )
-                        IconButton(onClick = { viewModel.removeLine(line.key) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "حذف")
-                        }
+                        HorizontalDivider()
                     }
-                    HorizontalDivider()
                 }
             }
 
@@ -318,15 +324,6 @@ fun InvoiceScreen(
             onPick = { viewModel.selectCustomer(it); showCustomerPicker = false },
         )
     }
-    if (showProductPicker) {
-        PickerDialog(
-            title = "اختر صنفًا",
-            options = products,
-            label = { "${it.name} — ${it.price}" },
-            onDismiss = { showProductPicker = false },
-            onPick = { viewModel.addLine(it); showProductPicker = false },
-        )
-    }
     if (showDatePicker) {
         LaunchedEffect(Unit) {
             val zoned = form.date.atZone(ZoneId.systemDefault())
@@ -373,4 +370,127 @@ private fun <T> PickerDialog(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
+}
+
+/** The product catalog as a grid of icon tiles (three per row) — tapping a
+    tile adds that product to the invoice, or bumps its quantity by one if it
+    is already there. A plain chunked Column of Rows rather than a lazy grid:
+    the whole screen already scrolls, and a lazy grid nested inside a
+    scrolling Column has no bounded height to lay itself out in. */
+@Composable
+private fun ProductGrid(
+    products: List<ProductEntity>,
+    quantities: Map<String, Double>,
+    onProductClick: (ProductEntity) -> Unit,
+) {
+    val columns = 3
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        products.chunked(columns).forEach { rowProducts ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                rowProducts.forEach { product ->
+                    ProductTile(
+                        product = product,
+                        quantity = quantities[product.id] ?: 0.0,
+                        onClick = { onProductClick(product) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(columns - rowProducts.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** One tile: soft container, round icon holder, name (always two lines tall so
+    every tile in the grid is the same height), price. A small badge shows how
+    many are already on the invoice, so a tap gets visible feedback even when
+    the added-lines list is scrolled out of view. */
+@Composable
+private fun ProductTile(
+    product: ProductEntity,
+    quantity: Double,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    // Opaque on purpose: a translucent fill would let the tile's own shadow
+    // show through it.
+    val tileColor = scheme.primaryContainer.copy(alpha = 0.45f).compositeOver(scheme.surface)
+    Box(modifier = modifier) {
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(20.dp),
+            color = tileColor,
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ProductIconCircle(imagePath = product.imagePath, name = product.name, size = 56.dp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    product.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    minLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    formatMoney(product.price),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (quantity > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
+                    .clip(CircleShape)
+                    .background(scheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    formatQuantity(quantity),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 5.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The round product icon used on the tiles and on the added-lines rows: the
+    product's own photo when it has one, otherwise the default box icon. */
+@Composable
+private fun ProductIconCircle(imagePath: String?, name: String, size: Dp) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).background(scheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imagePath.isNullOrBlank()) {
+            Icon(
+                imageVector = Icons.Filled.Inventory2,
+                contentDescription = null,
+                tint = scheme.onPrimaryContainer,
+                modifier = Modifier.size(size * 0.5f),
+            )
+        } else {
+            LocalFileImage(path = imagePath, contentDescription = name, modifier = Modifier.fillMaxSize())
+        }
+    }
 }

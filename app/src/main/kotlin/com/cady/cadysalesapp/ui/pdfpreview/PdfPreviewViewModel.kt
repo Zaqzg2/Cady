@@ -77,8 +77,8 @@ class PdfPreviewViewModel @Inject constructor(
                         val invoice = invoiceRepository.getById(docId) ?: error("الفاتورة غير موجودة")
                         val items = invoiceRepository.getItems(docId)
                         if (use80mm) {
-                            val customerPhone = customerRepository.getById(invoice.customerId)?.phone
-                            pdfService.generateInvoicePdf80mm(invoice, items, company, customerPhone, outputFile)
+                            val customer = customerRepository.getById(invoice.customerId)
+                            pdfService.generateInvoicePdf80mm(invoice, items, company, customer?.phone, customer?.address, outputFile)
                         } else {
                             pdfService.generateInvoicePdf(invoice, items, company, outputFile)
                         }
@@ -95,7 +95,7 @@ class PdfPreviewViewModel @Inject constructor(
                         val customer = customerRepository.getById(docId) ?: error("العميل غير موجود")
                         val rows = customerRepository.getLedger(docId)
                         if (use80mm) {
-                            pdfService.generateStatementPdf80mm(customer.name, rows, outputFile)
+                            pdfService.generateStatementPdf80mm(customer.name, rows, company, outputFile)
                         } else {
                             pdfService.generateStatementPdf(customer.name, rows, outputFile)
                         }
