@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -154,6 +155,19 @@ class ThermalPrintService @Inject constructor(
         return writeVerified(pingBytes, printerMac)
     }
 
+    /** Cheap ESC/POS clone controllers commonly corrupt a single GS v 0
+        raster command once its height passes a few hundred dots — reported
+        symptom is exactly a receipt that starts clean and turns into a dark,
+        torn mess partway down. A document built from the previous, shorter
+        layout usually stayed under that limit by luck; the redesigned one
+        (taller: bordered tables, a boxed total) regularly doesn't. The fix
+        every mature ESC/POS library uses is to never send one raster block
+        for a whole document: cut it into independent horizontal bands, each
+        safely under the danger zone, and send them as separate back-to-back
+        GS v 0 commands — the printer reassembles them into one continuous
+        image with no visible seam. */
+    private val maxRasterBandHeight = 200
+
     /**
      * GS v 0 raster command from a Bitmap, fixed-threshold black/white (no
      * dithering) — matches _buildRasterCommand exactly, including the
@@ -187,6 +201,20 @@ class ThermalPrintService @Inject constructor(
             (height and 0xFF).toByte(), ((height shr 8) and 0xFF).toByte(),
         )
         return header + packed
+    }
+
+    /** [buildRasterCommand], split into independent bands of at most
+        [maxRasterBandHeight] dots each — see that property's doc for why. */
+    private fun buildRasterBands(bitmap: Bitmap, threshold: Int): ByteArray {
+        val out = ByteArrayOutputStream()
+        var y = 0
+        while (y < bitmap.height) {
+            val bandHeight = minOf(maxRasterBandHeight, bitmap.height - y)
+            val band = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, bandHeight)
+            out.write(buildRasterCommand(band, threshold))
+            y += bandHeight
+        }
+        return out.toByteArray()
     }
 
     /**
@@ -225,9 +253,10 @@ class ThermalPrintService @Inject constructor(
         logStep("Rasterized PDF to ${bitmap.width}×${bitmap.height}")
 
         val payload = try {
-            val raster = buildRasterCommand(bitmap, blackThreshold)
+            val raster = buildRasterBands(bitmap, blackThreshold)
+            val bandCount = (bitmap.height + maxRasterBandHeight - 1) / maxRasterBandHeight
             val built = byteArrayOf(0x1B, 0x40) + raster + byteArrayOf(0x1B, 0x64, 0x02) + byteArrayOf(0x1D, 0x56, 0x01)
-            logStep("Final ESC/POS payload size: ${built.size} bytes")
+            logStep("Final ESC/POS payload size: ${built.size} bytes ($bandCount raster band(s))")
             built
         } catch (e: Exception) {
             logStep("❌ Failed to build ESC/POS command: ${e.message}")

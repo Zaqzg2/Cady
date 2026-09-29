@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.local.entity.CustomerEntity
 import com.cady.cadysalesapp.data.local.entity.ReceiptMethod
 import com.cady.cadysalesapp.data.repository.AccountRepository
+import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import com.cady.cadysalesapp.data.repository.CustomerRepository
 import com.cady.cadysalesapp.data.repository.ReceiptRepository
 import com.cady.cadysalesapp.ui.common.UiState
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import javax.inject.Inject
 
 data class ReceiptFormState(
@@ -25,7 +27,14 @@ data class ReceiptFormState(
     val amount: String = "",
     val method: ReceiptMethod = ReceiptMethod.CASH,
     val notes: String = "",
-    val existingDocNumber: String? = null,
+    /** Editable document number — pre-filled with a suggestion (new receipt)
+        or the original number (editing), same convention as InvoiceViewModel. */
+    val docNumber: String = "",
+    val date: Instant = Instant.now(),
+    /** Only set once the rep actually draws something for THIS receipt; null
+        means "use the saved default signature" at save time — same contract
+        as InvoiceFormState.signaturePath. */
+    val signaturePath: String? = null,
 )
 
 @HiltViewModel
@@ -34,6 +43,7 @@ class ReceiptViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val receiptRepository: ReceiptRepository,
     private val customerRepository: CustomerRepository,
+    private val companySettingsRepository: CompanySettingsRepository,
 ) : ViewModel() {
 
     private val existingReceiptId: String? = savedStateHandle.get<String>("receiptId")?.takeIf { it.isNotBlank() }
@@ -60,12 +70,16 @@ class ReceiptViewModel @Inject constructor(
                         amount = receipt.amount.toString(),
                         method = receipt.method,
                         notes = receipt.notes.orEmpty(),
-                        existingDocNumber = receipt.docNumber,
+                        docNumber = receipt.docNumber,
+                        date = receipt.date,
+                        signaturePath = receipt.repSignaturePath,
                     )
                 }
-                preselectedCustomerId != null -> {
-                    val customer = customerRepository.getById(preselectedCustomerId)
-                    _form.value = _form.value.copy(selectedCustomer = customer)
+                else -> {
+                    val customer = preselectedCustomerId?.let { customerRepository.getById(it) }
+                    val currentUser = accountRepository.currentUser.first()
+                    val suggested = currentUser?.let { receiptRepository.suggestNextDocNumber(it.id) }.orEmpty()
+                    _form.value = _form.value.copy(docNumber = suggested, selectedCustomer = customer)
                 }
             }
         }
@@ -87,6 +101,18 @@ class ReceiptViewModel @Inject constructor(
         _form.value = _form.value.copy(notes = value)
     }
 
+    fun setDocNumber(value: String) {
+        _form.value = _form.value.copy(docNumber = value)
+    }
+
+    fun setDate(value: Instant) {
+        _form.value = _form.value.copy(date = value)
+    }
+
+    fun setSignaturePath(path: String?) {
+        _form.value = _form.value.copy(signaturePath = path)
+    }
+
     fun save(onSuccess: () -> Unit) {
         val state = _form.value
         val customer = state.selectedCustomer
@@ -99,6 +125,10 @@ class ReceiptViewModel @Inject constructor(
             _saveState.value = UiState.Error("أدخل مبلغًا صحيحًا")
             return
         }
+        if (state.docNumber.isBlank()) {
+            _saveState.value = UiState.Error("أدخل رقم السند")
+            return
+        }
         _saveState.value = UiState.Loading
         viewModelScope.launch {
             val currentUser = accountRepository.currentUser.first()
@@ -107,16 +137,21 @@ class ReceiptViewModel @Inject constructor(
                 return@launch
             }
             try {
+                // The rep can draw a fresh signature for this one receipt; if
+                // they don't, it falls back to the saved default so most
+                // receipts still need no manual signing at all.
+                val defaultSignature = companySettingsRepository.settings.first().repSignaturePath
                 receiptRepository.saveReceipt(
                     ownerUid = currentUser.id,
                     repName = currentUser.displayName,
                     existingId = existingReceiptId,
-                    docNumber = state.existingDocNumber ?: receiptRepository.suggestNextDocNumber(currentUser.id),
+                    docNumber = state.docNumber,
+                    date = state.date,
                     customerId = customer.id,
                     customerName = customer.name,
                     amount = amount,
                     method = state.method,
-                    repSignaturePath = null, // TODO(polish pass): wire the real signature pad
+                    repSignaturePath = state.signaturePath ?: defaultSignature,
                     notes = state.notes.ifBlank { null },
                 )
                 _saveState.value = UiState.Success

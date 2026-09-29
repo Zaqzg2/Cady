@@ -34,6 +34,7 @@ class ReceiptRepository @Inject constructor(
         repName: String?,
         existingId: String?,
         docNumber: String,
+        date: Instant,
         customerId: String,
         customerName: String,
         amount: Double,
@@ -47,7 +48,7 @@ class ReceiptRepository @Inject constructor(
         val receipt = ReceiptEntity(
             id = id,
             docNumber = docNumber,
-            date = Instant.now(),
+            date = date,
             amount = amount,
             method = method,
             customerId = customerId,

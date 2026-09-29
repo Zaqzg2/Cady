@@ -273,7 +273,12 @@ class InvoiceViewModel @Inject constructor(
             }
             try {
                 val customer = state.selectedCustomer
-                val defaultSignature = companySettingsRepository.settings.first().repSignaturePath
+                // No fallback to the saved default signature here on purpose:
+                // that default represents the REP (used for receipts, where the
+                // rep is the one signing), and showing it under "customer
+                // signature" on an unsigned invoice would misrepresent who
+                // actually signed. An unsigned invoice prints with blank space
+                // for a handwritten signature instead — see PdfService.
                 val saved = invoiceRepository.saveInvoice(
                     ownerUid = currentUser.id,
                     repName = currentUser.displayName,
@@ -288,7 +293,7 @@ class InvoiceViewModel @Inject constructor(
                     discountPercent = state.discountPercent.toDoubleOrNull() ?: 0.0,
                     discountAmount = state.discountAmount.toDoubleOrNull() ?: 0.0,
                     notes = state.notes.ifBlank { null },
-                    signaturePath = state.signaturePath ?: defaultSignature,
+                    signaturePath = state.signaturePath,
                 )
                 _saveState.value = UiState.Success
                 onSuccess(saved.id)

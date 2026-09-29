@@ -42,6 +42,9 @@ class PdfService @Inject constructor() {
     private val moneyFormat = NumberFormat.getNumberInstance(Locale.US).apply { maximumFractionDigits = 0 }
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy/MM/dd")
     private val dateTimeFormat = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm")
+    // Compact form for the statement table's own date column, which has
+    // far less room than a metadata row.
+    private val shortDateFormat = DateTimeFormatter.ofPattern("yyyy/MM/dd")
 
     private fun titlePaint() = TextPaint().apply { textSize = 20f; isFakeBoldText = true; color = 0xFF000000.toInt() }
     private fun labelPaint() = TextPaint().apply { textSize = 11f; color = 0xFF666666.toInt() }
@@ -565,7 +568,7 @@ class PdfService @Inject constructor() {
             }
             y += canvas.drawGridTable(
                 headers = listOf("الصنف", "كمية", "سعر", "الاجمالي"),
-                colFractions = listOf(0.42f, 0.14f, 0.20f, 0.24f),
+                colFractions = listOf(0.46f, 0.12f, 0.18f, 0.24f),
                 rowCells = itemRows,
                 right = right,
                 top = y,
@@ -588,9 +591,16 @@ class PdfService @Inject constructor() {
 
             y += canvas.drawDebtBox("إجمالي المديونية المتبقية", money(invoice.balanceAfter), y, scale) + 10f
 
-            if (signature != null) {
-                y += canvas.rtlText("توقيع العميل بالاستلام", right, y, contentWidth, thermalLabelPaint(scale), Layout.Alignment.ALIGN_CENTER) + 4f
-                y += canvas.drawCenteredBitmap(signature, thermalMargin, right, y, 50f, contentWidth * 0.6f) + 6f
+            // The caption always prints, signed or not: a customer signs on the
+            // spot on invoices (there's no saved default for that, unlike the
+            // rep signature below), so an unsigned invoice still needs to leave
+            // a blank space of the same height for a handwritten signature on
+            // the paper copy, right before the footer.
+            y += canvas.rtlText("توقيع العميل بالاستلام", right, y, contentWidth, thermalLabelPaint(scale), Layout.Alignment.ALIGN_CENTER) + 4f
+            y += if (signature != null) {
+                canvas.drawCenteredBitmap(signature, thermalMargin, right, y, 50f, contentWidth * 0.6f) + 6f
+            } else {
+                56f
             }
 
             if (company.invoiceFooterText.isNotBlank()) {
@@ -683,21 +693,28 @@ class PdfService @Inject constructor() {
             y += canvas.drawLabelValueRow(
                 "اسم العميل", customerName, right, y, contentWidth,
                 thermalLabelPaint(scale), thermalBodyPaint(scale), labelFraction = 0.36f,
+            ) + 4f + lineGap
+            y += canvas.drawLabelValueRow(
+                "تاريخ الكشف", shortDateFormat.format(java.time.Instant.now().atZone(java.time.ZoneId.systemDefault())), right, y, contentWidth,
+                thermalLabelPaint(scale), thermalBodyPaint(scale), labelFraction = 0.36f,
             ) + 8f + lineGap
 
-            // Blank cell where a row has no debit / no credit — the grid already
-            // shows it's empty, and a dash on every row is just noise.
+            // Blank cell where a row has no debit / no credit / no document
+            // number (the opening-balance row has none of the three) — the
+            // grid already shows it's empty, and a dash on every row is noise.
             val ledgerRows = rows.map { row ->
                 listOf(
                     row.description,
+                    row.docNumber.orEmpty(),
+                    shortDateFormat.format(row.date.atZone(java.time.ZoneId.systemDefault())),
                     if (row.debit > 0) plainNumber(row.debit) else "",
                     if (row.credit > 0) plainNumber(row.credit) else "",
                     plainNumber(row.runningBalance),
                 )
             }
             y += canvas.drawGridTable(
-                headers = listOf("الوصف", "مدين", "دائن", "الرصيد"),
-                colFractions = listOf(0.31f, 0.23f, 0.23f, 0.23f),
+                headers = listOf("الوصف", "رقم المستند", "التاريخ", "مدين", "دائن", "الرصيد"),
+                colFractions = listOf(0.26f, 0.13f, 0.15f, 0.16f, 0.15f, 0.15f),
                 rowCells = ledgerRows,
                 right = right,
                 top = y,
