@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (android:dataExtractionRules). Same reason as backup_rules.xml; a
+     phone-to-phone transfer is left untouched so a new phone still receives the zips. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="backups/" />
+        <exclude domain="file" path="sync/" />
+    </cloud-backup>
+</data-extraction-rules>

@@ -42,4 +42,27 @@ interface ReceiptDao {
 
     @Query("DELETE FROM receipts WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    // --- Phase 6: sync status and backup support (no schema change — queries only) ---
+
+    @Query("SELECT * FROM receipts")
+    suspend fun getAll(): List<ReceiptEntity>
+
+    @Query("SELECT COUNT(*) FROM receipts WHERE ownerUid = :ownerUid")
+    fun observeCount(ownerUid: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM receipts WHERE ownerUid = :ownerUid AND syncStatus = 'PENDING'")
+    fun observePendingCount(ownerUid: String): Flow<Int>
+
+    @Query("DELETE FROM receipts")
+    suspend fun deleteAll()
+
+    // --- Phase 6: flipping PENDING -> SYNCED once the cloud (or the manager's ack) confirmed a row ---
+
+    @Query("UPDATE receipts SET syncStatus = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String)
+
+    /** Callers chunk [ids] (<= 500) to stay far below SQLite's bound-variable limit. */
+    @Query("UPDATE receipts SET syncStatus = 'SYNCED' WHERE id IN (:ids)")
+    suspend fun markSyncedByIds(ids: List<String>)
 }

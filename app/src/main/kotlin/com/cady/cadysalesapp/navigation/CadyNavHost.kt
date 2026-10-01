@@ -6,14 +6,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.cady.cadysalesapp.ui.IncomingFileViewModel
 import com.cady.cadysalesapp.ui.customerdetail.CustomerDetailScreen
 import com.cady.cadysalesapp.ui.customers.CustomersScreen
 import com.cady.cadysalesapp.ui.home.HomeScreen
@@ -36,6 +42,18 @@ fun CadyNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = CadyDestination.Login.route,
 ) {
+    // A sync file shared into Cady from another app: once the person is signed in (they are on
+    // Home), bring them to the sync screen, which asks before importing anything.
+    val incomingViewModel: IncomingFileViewModel = hiltViewModel()
+    val incomingFile by incomingViewModel.pending.collectAsState()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    LaunchedEffect(incomingFile, currentRoute) {
+        if (incomingFile != null && currentRoute == CadyDestination.Home.route) {
+            navController.navigate(CadyDestination.Sync.route) { launchSingleTop = true }
+        }
+    }
+
     NavHost(navController = navController, startDestination = startDestination) {
         composable(CadyDestination.SetupManager.route) {
             SetupManagerScreen(
@@ -180,10 +198,22 @@ fun CadyNavHost(
         composable(CadyDestination.SettingsPrivacy.route) { com.cady.cadysalesapp.ui.settings.SettingsPrivacyScreen() }
         composable(CadyDestination.SettingsData.route) { com.cady.cadysalesapp.ui.settings.SettingsDataScreen() }
 
-        composable(CadyDestination.Sync.route) { PlaceholderScreen("المزامنة") }
-        composable(CadyDestination.SyncPendingPreview.route) { PlaceholderScreen("معاينة المعلّق") }
-        composable(CadyDestination.SyncOutboxInbox.route) { PlaceholderScreen("الصادر والوارد") }
-        composable(CadyDestination.BackupManagement.route) { PlaceholderScreen("النسخ الاحتياطي") }
+        composable(CadyDestination.Sync.route) {
+            com.cady.cadysalesapp.ui.sync.SyncScreen(
+                onBack = { navController.popBackStack() },
+                onOpenPendingPreview = { navController.navigate(CadyDestination.SyncPendingPreview.route) },
+                onOpenLog = { navController.navigate(CadyDestination.SyncOutboxInbox.route) },
+            )
+        }
+        composable(CadyDestination.SyncPendingPreview.route) {
+            com.cady.cadysalesapp.ui.sync.SyncPendingPreviewScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.SyncOutboxInbox.route) {
+            com.cady.cadysalesapp.ui.sync.SyncOutboxInboxScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.BackupManagement.route) {
+            com.cady.cadysalesapp.ui.backup.BackupManagementScreen(onBack = { navController.popBackStack() })
+        }
 
         composable(CadyDestination.ManagerDashboard.route) { PlaceholderScreen("لوحة تحكم المدير") }
         composable(CadyDestination.ManagerUsers.route) { PlaceholderScreen("المندوبون") }

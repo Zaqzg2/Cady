@@ -1,7 +1,15 @@
 package com.cady.cadysalesapp
 
 import android.app.Application
+import com.cady.cadysalesapp.data.backup.AutoBackupScheduler
+import com.cady.cadysalesapp.data.backup.BackupSettingsRepository
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * Hilt's dependency graph is rooted here. Everything DbService/AccountService/etc.
@@ -22,4 +30,29 @@ import dagger.hilt.android.HiltAndroidApp
  * not something to change without a device to actually test the login flow on.
  */
 @HiltAndroidApp
-class CadyApplication : Application()
+class CadyApplication : Application() {
+
+    @Inject
+    lateinit var backupSettings: BackupSettingsRepository
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun onCreate() {
+        super.onCreate()
+        // Re-assert the automatic-backup schedule on every start. WorkManager keeps its own job
+        // across restarts, so this is normally a no-op (ExistingPeriodicWorkPolicy.UPDATE) — it
+        // matters after a restore of app settings onto a new device, where the switch is "on"
+        // but no job exists yet.
+        appScope.launch {
+            try {
+                AutoBackupScheduler.apply(
+                    this@CadyApplication,
+                    backupSettings.autoBackupEnabled.first(),
+                    backupSettings.autoBackupFrequency.first(),
+                )
+            } catch (e: Exception) {
+                android.util.Log.w("CadyBackup", "Could not re-apply the backup schedule: ${e.message}")
+            }
+        }
+    }
+}

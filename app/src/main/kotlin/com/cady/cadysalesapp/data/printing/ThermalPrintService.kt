@@ -168,6 +168,21 @@ class ThermalPrintService @Inject constructor(
         image with no visible seam. */
     private val maxRasterBandHeight = 200
 
+    /** The highest threshold ever applied, whatever the saved setting says.
+        The page background is forced to pure white (255) and the app's pale
+        fills (table header, debt box) sit around 236, so a threshold at or
+        above that turns blank paper — or the whole receipt — solid black.
+        The settings slider used to run all the way to 255, where every pixel
+        counts as "dark"; a printout that is one solid black block is exactly
+        what that produces. */
+    private val maxEffectiveThreshold = 230
+
+    /** A real receipt is mostly white paper (text and rules are a small
+        fraction of the area). If more than this share of the picture came
+        out black, something upstream is wrong — better to say so than to
+        burn a metre of paper and the battery on a black page. */
+    private val maxPlausibleBlackRatio = 0.6
+
     /**
      * GS v 0 raster command from a Bitmap, fixed-threshold black/white (no
      * dithering) — matches _buildRasterCommand exactly, including the
@@ -175,7 +190,7 @@ class ThermalPrintService @Inject constructor(
      * edges look faded at 203dpi, whereas a hard threshold makes text bolder
      * and clearer, which is what an invoice/receipt actually needs.
      */
-    private fun buildRasterCommand(bitmap: Bitmap, threshold: Int): ByteArray {
+    private fun buildRasterCommand(bitmap: Bitmap, threshold: Int, blackCount: LongArray): ByteArray {
         val width = bitmap.width
         val height = bitmap.height
         val rowBytes = (width + 7) / 8
@@ -191,6 +206,7 @@ class ThermalPrintService @Inject constructor(
                 if (gray <= threshold) {
                     val i = y * rowBytes + (x shr 3)
                     packed[i] = (packed[i].toInt() or (0x80 shr (x and 7))).toByte()
+                    blackCount[0]++
                 }
             }
         }
@@ -205,16 +221,18 @@ class ThermalPrintService @Inject constructor(
 
     /** [buildRasterCommand], split into independent bands of at most
         [maxRasterBandHeight] dots each — see that property's doc for why. */
-    private fun buildRasterBands(bitmap: Bitmap, threshold: Int): ByteArray {
+    private fun buildRasterBands(bitmap: Bitmap, threshold: Int): Pair<ByteArray, Double> {
         val out = ByteArrayOutputStream()
+        val blackCount = LongArray(1)
         var y = 0
         while (y < bitmap.height) {
             val bandHeight = minOf(maxRasterBandHeight, bitmap.height - y)
             val band = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, bandHeight)
-            out.write(buildRasterCommand(band, threshold))
+            out.write(buildRasterCommand(band, threshold, blackCount))
             y += bandHeight
         }
-        return out.toByteArray()
+        val total = bitmap.width.toLong() * bitmap.height.toLong()
+        return out.toByteArray() to (if (total == 0L) 0.0 else blackCount[0].toDouble() / total)
     }
 
     /**
@@ -237,11 +255,24 @@ class ThermalPrintService @Inject constructor(
                         val scale = targetWidthPx.toFloat() / page.width
                         val targetHeightPx = (page.height * scale).toInt()
                         val raw = Bitmap.createBitmap(targetWidthPx, targetHeightPx, Bitmap.Config.ARGB_8888)
-                        // Explicit white background before rendering — same defense as
-                        // the Flutter version's img.fill(...) flatten step.
                         Canvas(raw).drawColor(Color.WHITE)
-                        page.render(raw, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                        raw
+                        // Same render mode as the on-screen preview, which is the one
+                        // known to come out right on the real device (the preview looks
+                        // fine while the print did not, and FOR_PRINT was the untested
+                        // difference).
+                        page.render(raw, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        // Then flatten onto a fresh white bitmap with real alpha
+                        // blending. The threshold below reads only the RGB channels, so
+                        // any pixel the renderer left transparent (RGB 0,0,0) would count
+                        // as black; the preview never shows that because a transparent
+                        // pixel just displays the screen behind it.
+                        val flat = Bitmap.createBitmap(targetWidthPx, targetHeightPx, Bitmap.Config.ARGB_8888)
+                        Canvas(flat).apply {
+                            drawColor(Color.WHITE)
+                            drawBitmap(raw, 0f, 0f, null)
+                        }
+                        raw.recycle()
+                        flat
                     }
                 }
             }
@@ -252,15 +283,27 @@ class ThermalPrintService @Inject constructor(
         }
         logStep("Rasterized PDF to ${bitmap.width}×${bitmap.height}")
 
+        val threshold = blackThreshold.coerceIn(0, maxEffectiveThreshold)
+        logStep("Black threshold: saved=$blackThreshold, used=$threshold")
+
+        var blackRatio = 0.0
         val payload = try {
-            val raster = buildRasterBands(bitmap, blackThreshold)
+            val (raster, ratio) = buildRasterBands(bitmap, threshold)
+            blackRatio = ratio
             val bandCount = (bitmap.height + maxRasterBandHeight - 1) / maxRasterBandHeight
             val built = byteArrayOf(0x1B, 0x40) + raster + byteArrayOf(0x1B, 0x64, 0x02) + byteArrayOf(0x1D, 0x56, 0x01)
+            logStep("Black pixels: ${"%.1f".format(ratio * 100)}% of the picture")
             logStep("Final ESC/POS payload size: ${built.size} bytes ($bandCount raster band(s))")
             built
         } catch (e: Exception) {
             logStep("❌ Failed to build ESC/POS command: ${e.message}")
             lastError = "فشل تجهيز بيانات الطباعة"
+            return@withContext false
+        }
+
+        if (blackRatio > maxPlausibleBlackRatio) {
+            logStep("❌ Refusing to print: ${"%.0f".format(blackRatio * 100)}% of the picture is black — a receipt is mostly white")
+            lastError = "الصورة الناتجة سوداء تقريبًا بالكامل — أوقفت الطباعة حتى لا تُهدر الورق"
             return@withContext false
         }
 

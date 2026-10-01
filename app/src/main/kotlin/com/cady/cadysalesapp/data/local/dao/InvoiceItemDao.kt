@@ -21,4 +21,12 @@ interface InvoiceItemDao {
     // handles that automatically when an invoice row is deleted.
     @Query("DELETE FROM invoice_items WHERE invoiceId = :invoiceId")
     suspend fun deleteForInvoice(invoiceId: String)
+
+    // --- Phase 6: backup/restore support ---
+
+    @Query("SELECT * FROM invoice_items")
+    suspend fun getAll(): List<InvoiceItemEntity>
+
+    @Query("DELETE FROM invoice_items")
+    suspend fun deleteAll()
 }

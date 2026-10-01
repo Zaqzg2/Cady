@@ -45,4 +45,27 @@ interface InvoiceDao {
 
     @Query("DELETE FROM invoices WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    // --- Phase 6: sync status and backup support (no schema change — queries only) ---
+
+    @Query("SELECT * FROM invoices")
+    suspend fun getAll(): List<InvoiceEntity>
+
+    @Query("SELECT COUNT(*) FROM invoices WHERE ownerUid = :ownerUid")
+    fun observeCount(ownerUid: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM invoices WHERE ownerUid = :ownerUid AND syncStatus = 'PENDING'")
+    fun observePendingCount(ownerUid: String): Flow<Int>
+
+    @Query("DELETE FROM invoices")
+    suspend fun deleteAll()
+
+    // --- Phase 6: flipping PENDING -> SYNCED once the cloud (or the manager's ack) confirmed a row ---
+
+    @Query("UPDATE invoices SET syncStatus = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String)
+
+    /** Callers chunk [ids] (<= 500) to stay far below SQLite's bound-variable limit. */
+    @Query("UPDATE invoices SET syncStatus = 'SYNCED' WHERE id IN (:ids)")
+    suspend fun markSyncedByIds(ids: List<String>)
 }

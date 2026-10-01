@@ -3,4 +3,12 @@
     <!-- Generated invoice/receipt/statement PDFs live in cacheDir/pdfs — kept out
          of permanent app storage since these are always regeneratable on demand. -->
     <cache-path name="pdfs" path="pdfs/" />
+
+    <!-- Phase 6: saved backups (.zip), so a saved backup can be shared from the list. -->
+    <files-path name="backups" path="backups/" />
+    <!-- Phase 6: manual-sync files this device exported (the outbox), kept so an
+         export can be re-sent without regenerating it. -->
+    <files-path name="sync_outbox" path="sync/outbox/" />
+    <!-- Phase 6: CSV exports are throw-away copies, regenerated on every export. -->
+    <cache-path name="exports" path="exports/" />
 </paths>

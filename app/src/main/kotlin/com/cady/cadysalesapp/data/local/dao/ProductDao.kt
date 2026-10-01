@@ -27,4 +27,26 @@ interface ProductDao {
 
     @Delete
     suspend fun delete(product: ProductEntity)
+
+    // --- Phase 6: sync status and backup support (no schema change — queries only) ---
+
+    @Query("SELECT * FROM products")
+    suspend fun getAll(): List<ProductEntity>
+
+    @Query("SELECT * FROM products WHERE syncStatus = 'PENDING'")
+    suspend fun getPending(): List<ProductEntity>
+
+    @Query("SELECT COUNT(*) FROM products WHERE syncStatus = 'PENDING'")
+    fun observePendingCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM products")
+    fun observeCount(): Flow<Int>
+
+    @Query("DELETE FROM products")
+    suspend fun deleteAll()
+
+    // --- Phase 6: flipping PENDING -> SYNCED once the cloud (or the manager's ack) confirmed a row ---
+
+    @Query("UPDATE products SET syncStatus = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String)
 }

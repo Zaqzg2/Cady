@@ -55,7 +55,11 @@ fun SettingsPrintingScreen(
 
     var fontScale by remember(settings.printFontScale) { mutableFloatStateOf(settings.printFontScale) }
     var lineSpacing by remember(settings.printLineSpacingExtra) { mutableFloatStateOf(settings.printLineSpacingExtra) }
-    var blackThreshold by remember(settings.printBlackThreshold) { mutableFloatStateOf(settings.printBlackThreshold.toFloat()) }
+    // The slider stops at 230: above that, blank paper itself counts as "dark"
+    // and the whole receipt prints as one solid black block (see ThermalPrintService).
+    var blackThreshold by remember(settings.printBlackThreshold) {
+        mutableFloatStateOf(settings.printBlackThreshold.toFloat().coerceIn(60f, 230f))
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -152,7 +156,7 @@ fun SettingsPrintingScreen(
                 value = blackThreshold,
                 onValueChange = { blackThreshold = it },
                 onValueChangeFinished = { viewModel.setBlackThreshold(blackThreshold.toInt()) },
-                valueRange = 0f..255f,
+                valueRange = 60f..230f,
             )
 
             Spacer(Modifier.height(20.dp))

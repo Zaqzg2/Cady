@@ -23,6 +23,8 @@ googleServices = "4.5.0"
 datastorePreferences = "1.2.1"
 biometric = "1.1.0"
 fragmentKtx = "1.9.0"
+# WorkManager 2.12.0 stable (released 2026-09-23 per the official release notes; minSdk 24 = ours).
+work = "2.12.0"
 
 junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
@@ -71,6 +73,7 @@ firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragmentKtx" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }

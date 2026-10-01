@@ -40,4 +40,32 @@ interface CustomerDao {
 
     @Upsert
     suspend fun upsertAll(customers: List<CustomerEntity>)
+
+    // --- Phase 6: sync status, backup and CSV support (no schema change — queries only) ---
+
+    /** Whole table, every owner — what a full backup snapshots. */
+    @Query("SELECT * FROM customers")
+    suspend fun getAll(): List<CustomerEntity>
+
+    @Query("SELECT * FROM customers WHERE ownerUid = :ownerUid")
+    suspend fun getAllByOwner(ownerUid: String): List<CustomerEntity>
+
+    @Query("SELECT COUNT(*) FROM customers WHERE ownerUid = :ownerUid")
+    fun observeCount(ownerUid: String): Flow<Int>
+
+    /** Literal 'PENDING' matches Converters.syncStatusToString (enum stored by name). */
+    @Query("SELECT COUNT(*) FROM customers WHERE ownerUid = :ownerUid AND syncStatus = 'PENDING'")
+    fun observePendingCount(ownerUid: String): Flow<Int>
+
+    @Query("DELETE FROM customers")
+    suspend fun deleteAll()
+
+    // --- Phase 6: flipping PENDING -> SYNCED once the cloud (or the manager's ack) confirmed a row ---
+
+    @Query("UPDATE customers SET syncStatus = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String)
+
+    /** Callers chunk [ids] (<= 500) to stay far below SQLite's bound-variable limit. */
+    @Query("UPDATE customers SET syncStatus = 'SYNCED' WHERE id IN (:ids)")
+    suspend fun markSyncedByIds(ids: List<String>)
 }

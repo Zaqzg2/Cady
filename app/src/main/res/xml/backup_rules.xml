@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 6–11 Auto Backup (android:fullBackupContent).
+     Our own backup zips and the manual-sync outbox live in filesDir; they are the app's
+     own safety copies, so they must not also be uploaded to the user's Google backup
+     (it would blow past the 25 MB limit and make the whole Google backup fail). -->
+<full-backup-content>
+    <exclude domain="file" path="backups/" />
+    <exclude domain="file" path="sync/" />
+</full-backup-content>
