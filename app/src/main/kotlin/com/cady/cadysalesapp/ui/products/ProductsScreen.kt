@@ -33,8 +33,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.data.local.entity.ProductEntity
 
+/**
+ * The price list is the manager's to edit — reps only read it (the cloud rules
+ * already refuse a rep's write, so an edit button for them could only fail).
+ * [canEdit] is true for a manager account.
+ */
 @Composable
 fun ProductsScreen(
+    canEdit: Boolean = false,
     bottomBar: @Composable () -> Unit = {},
     viewModel: ProductsViewModel = hiltViewModel(),
 ) {
@@ -46,31 +52,29 @@ fun ProductsScreen(
         topBar = { TopAppBar(title = { Text("المنتجات") }) },
         bottomBar = bottomBar,
         floatingActionButton = {
-            FloatingActionButton(onClick = { editingProduct = null; showDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "إضافة منتج")
+            if (canEdit) {
+                FloatingActionButton(onClick = { editingProduct = null; showDialog = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "إضافة منتج")
+                }
             }
         },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
             items(products, key = { it.id }) { product ->
-                Card(
-                    onClick = { editingProduct = product; showDialog = true },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(product.name, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "${product.price} — ${product.unit}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                val cardModifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                if (canEdit) {
+                    Card(
+                        onClick = { editingProduct = product; showDialog = true },
+                        modifier = cardModifier,
+                    ) { ProductCardBody(product) }
+                } else {
+                    Card(modifier = cardModifier) { ProductCardBody(product) }
                 }
             }
         }
     }
 
-    if (showDialog) {
+    if (showDialog && canEdit) {
         ProductEditDialog(
             existing = editingProduct,
             onDismiss = { showDialog = false },
@@ -81,6 +85,18 @@ fun ProductsScreen(
             onDelete = editingProduct?.let { product ->
                 { viewModel.deleteProduct(product); showDialog = false }
             },
+        )
+    }
+}
+
+@Composable
+private fun ProductCardBody(product: ProductEntity) {
+    Column(Modifier.padding(16.dp)) {
+        Text(product.name, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "${product.price} — ${product.unit}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

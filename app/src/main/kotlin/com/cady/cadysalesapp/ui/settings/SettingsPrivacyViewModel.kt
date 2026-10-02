@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.repository.AuthRepository
 import com.cady.cadysalesapp.data.repository.BiometricAuthHelper
+import com.cady.cadysalesapp.data.repository.BiometricAvailability
+import com.cady.cadysalesapp.data.repository.BiometricResult
 import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +38,28 @@ class SettingsPrivacyViewModel @Inject constructor(
         PrivacyUiState(passwordSet, biometricEnabled, company.hideAmountsInRecents)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PrivacyUiState())
 
-    fun isBiometricAvailable(activity: FragmentActivity): Boolean = biometricAuthHelper.isBiometricAvailable(activity)
+    fun biometricAvailability(activity: FragmentActivity): BiometricAvailability =
+        biometricAuthHelper.availability(activity)
+
+    /**
+     * Turning fingerprint unlock on now requires one real, successful fingerprint
+     * check first — so the switch can only ever be "on" for a sensor that works,
+     * instead of being flipped on and then silently never doing anything.
+     */
+    fun enableBiometric(activity: FragmentActivity, onFailure: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = biometricAuthHelper.authenticate(
+                activity,
+                title = "تفعيل البصمة",
+                subtitle = "ضع إصبعك على المستشعر للتأكد من أنها تعمل",
+            )
+            when (result) {
+                is BiometricResult.Success -> authRepository.setBiometricEnabled(true)
+                is BiometricResult.Cancelled -> {}
+                is BiometricResult.Error -> onFailure(result.message)
+            }
+        }
+    }
 
     fun setAppLockPassword(pin: String) {
         viewModelScope.launch { authRepository.setPassword(pin) }

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -14,12 +15,18 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.cady.cadysalesapp.data.repository.PrintSpeed
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -28,17 +35,24 @@ import javax.inject.Singleton
 
 /**
  * Higher-level printing logic ported from print_service_io.dart, sitting on
- * top of BluetoothPrinterBridge's raw socket layer. Three reliability layers
- * carried over verbatim from that file's own reasoning (see its header
- * comment for the real hardware failures each one fixes):
- * 1. Chunked writes (1KB + 12ms delay) — a full invoice image can be tens of
- *    KB, and sending it in one shot overflows cheap printers' buffers.
+ * top of BluetoothPrinterBridge's raw socket layer. Reliability layers carried
+ * over from that file's own reasoning (see its header comment for the real
+ * hardware failures each one fixes):
+ * 1. Paced writes — a full invoice image can be tens of KB, and sending it in
+ *    one shot overflows cheap printers' buffers. The pacing is now a choice
+ *    ([PrintSpeed]) because too slow is a failure too: a printer that is fed
+ *    slower than it prints stops and starts, and leaves pale streaks.
  * 2. A verified write, not just a connection-status check — write for real,
  *    and if it fails despite "being connected", force a full reconnect and
  *    retry once before giving up.
  * 3. A step-by-step diagnostic log with millisecond timestamps, so a failure
  *    on a specific device is actually diagnosable instead of a single opaque
  *    "printing failed" message.
+ * 4. Raster bands are cut only inside blank paper ([RasterBands]), so the
+ *    unavoidable pause between two raster commands never lands on ink.
+ * 5. The Bluetooth connection is opened while the picture is still being
+ *    prepared (and ahead of time, from the preview screen — see [warmUp]), so
+ *    the paper starts moving right after the tap instead of after the connect.
  */
 @Singleton
 class ThermalPrintService @Inject constructor(
@@ -46,6 +60,14 @@ class ThermalPrintService @Inject constructor(
     private val bridge: BluetoothPrinterBridge,
     private val dataStore: DataStore<Preferences>,
 ) {
+    companion object {
+        /** Darker than the old 175: thin Arabic strokes survive the 1-bit conversion. */
+        const val DEFAULT_BLACK_THRESHOLD = 195
+
+        /** 80mm paper prints 72mm of it: 72mm × 8 dots/mm at 203dpi. */
+        private const val PRINT_WIDTH_DOTS = 576
+    }
+
     private val printerMacKey = stringPreferencesKey("thermal_printer_mac")
 
     val savedPrinterMac: Flow<String?> = dataStore.data.map { it[printerMacKey] }
@@ -56,17 +78,22 @@ class ThermalPrintService @Inject constructor(
 
     private val log = mutableListOf<String>()
     var lastError: String? = null; private set
-    val lastAttemptLog: List<String> get() = log
+
+    /** A snapshot — the connection may be logging from another coroutine while this is read. */
+    val lastAttemptLog: List<String> get() = synchronized(log) { log.toList() }
     private var attemptStartMs = 0L
 
+    /** Only one coroutine may open, close or re-open the socket at a time. */
+    private val connectionMutex = Mutex()
+
     private fun resetLog() {
-        log.clear()
+        synchronized(log) { log.clear() }
         lastError = null
         attemptStartMs = System.currentTimeMillis()
     }
 
     private fun logStep(message: String) {
-        log += "+${System.currentTimeMillis() - attemptStartMs}ms  $message"
+        synchronized(log) { log += "+${System.currentTimeMillis() - attemptStartMs}ms  $message" }
     }
 
     val requiredPermissions: Array<String>
@@ -81,11 +108,48 @@ class ThermalPrintService @Inject constructor(
 
     suspend fun pairedDevices(): List<BluetoothPrinterBridge.PairedDevice> = bridge.pairedDevices()
 
-    /** 1024-byte chunks with a 12ms gap — matches _writeChunked exactly. */
-    private suspend fun writeChunked(bytes: ByteArray): Boolean {
-        val chunkSize = 1024
+    /**
+     * Opens the saved printer's connection ahead of the tap on "print" (called when
+     * the receipt preview opens), so the tap doesn't pay for the Bluetooth connect.
+     * Never throws and never reports: if it fails, the real print simply tries again
+     * and reports properly.
+     */
+    suspend fun warmUp() {
+        try {
+            if (!hasBluetoothPermission()) return
+            val mac = savedPrinterMac.first()
+            if (mac.isNullOrEmpty()) return
+            withContext(Dispatchers.IO) { ensureConnected(mac) }
+        } catch (e: Exception) {
+            // Silent on purpose — see above.
+        }
+    }
+
+    /** Is the socket live — and if not, and there is a saved address, open it. */
+    private suspend fun ensureConnected(printerMac: String?): Boolean = connectionMutex.withLock {
+        var connected = bridge.isConnected()
+        logStep("isConnected before attempt: $connected")
+        if (!connected && !printerMac.isNullOrEmpty()) {
+            logStep("Connecting to $printerMac...")
+            connected = try {
+                bridge.connect(printerMac)
+            } catch (e: Exception) {
+                logStep("connect() threw: ${e.message}")
+                false
+            }
+            logStep("connect() result: $connected")
+            if (connected) delay(300) // brief settle time some cheap printers need after a fresh connect
+        }
+        connected
+    }
+
+    /** Writes in paced chunks (see [PrintSpeed]) and logs the real throughput, so two
+        speeds can be compared from the diagnostic log and not only by eye. */
+    private suspend fun writeChunked(bytes: ByteArray, speed: PrintSpeed): Boolean {
+        val chunkSize = speed.chunkSize
+        val startedAt = System.currentTimeMillis()
         if (bytes.size <= chunkSize) {
-            val ok = bridge.writeBytes(bytes)
+            val ok = bridge.writeBytes(bytes, 0, bytes.size)
             logStep("Wrote ${bytes.size} bytes (single chunk): ${if (ok) "ok" else "failed"}")
             return ok
         }
@@ -93,11 +157,10 @@ class ThermalPrintService @Inject constructor(
         var chunkIndex = 0
         val totalChunks = (bytes.size + chunkSize - 1) / chunkSize
         while (offset < bytes.size) {
-            val end = minOf(offset + chunkSize, bytes.size)
-            val chunk = bytes.copyOfRange(offset, end)
+            val length = minOf(chunkSize, bytes.size - offset)
             chunkIndex++
             val ok = try {
-                bridge.writeBytes(chunk)
+                bridge.writeBytes(bytes, offset, length)
             } catch (e: Exception) {
                 logStep("Exception writing chunk $chunkIndex/$totalChunks: ${e.message}")
                 return false
@@ -106,40 +169,43 @@ class ThermalPrintService @Inject constructor(
                 logStep("Chunk $chunkIndex/$totalChunks failed at byte $offset")
                 return false
             }
-            offset = end
-            delay(12)
+            offset += length
+            if (speed.delayMs > 0) delay(speed.delayMs)
         }
-        logStep("Wrote ${bytes.size} bytes in $totalChunks chunks: all ok ✓")
+        val elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(1)
+        logStep(
+            "Wrote ${bytes.size} bytes in $totalChunks chunks (${speed.name}): all ok ✓ — " +
+                "$elapsedMs ms, about ${bytes.size / elapsedMs} KB/s"
+        )
         return true
     }
 
     /** Connect-if-needed, write, and on failure force a full reconnect + retry
         once — matches _writeVerified exactly. */
-    private suspend fun writeVerified(bytes: ByteArray, printerMac: String?): Boolean {
-        var connected = bridge.isConnected()
-        logStep("isConnected before attempt: $connected")
-        if (!connected && !printerMac.isNullOrEmpty()) {
-            logStep("Connecting to $printerMac...")
-            connected = bridge.connect(printerMac)
-            logStep("connect() result: $connected")
-            if (connected) delay(300) // brief settle time some cheap printers need after a fresh connect
-        }
+    private suspend fun writeVerified(bytes: ByteArray, printerMac: String?, speed: PrintSpeed): Boolean {
+        val connected = ensureConnected(printerMac)
         if (!connected) {
             logStep("Final failure: no live connection and no saved printer address to retry")
             lastError = "لا يوجد اتصال بالطابعة"
             return false
         }
 
-        var ok = writeChunked(bytes)
+        var ok = writeChunked(bytes, speed)
         if (!ok && !printerMac.isNullOrEmpty()) {
             logStep("Write failed despite an apparently \"connected\" state — the socket was silently dead. Forcing a full reconnect as a last attempt...")
-            try { bridge.disconnect() } catch (e: Exception) { logStep("Exception during disconnect(): ${e.message}") }
-            val reconnected = bridge.connect(printerMac)
-            logStep("Reconnect result: $reconnected")
-            if (reconnected) {
-                delay(300)
-                ok = writeChunked(bytes)
+            val reconnected = connectionMutex.withLock {
+                try { bridge.disconnect() } catch (e: Exception) { logStep("Exception during disconnect(): ${e.message}") }
+                val result = try {
+                    bridge.connect(printerMac)
+                } catch (e: Exception) {
+                    logStep("connect() threw: ${e.message}")
+                    false
+                }
+                logStep("Reconnect result: $result")
+                if (result) delay(300)
+                result
             }
+            if (reconnected) ok = writeChunked(bytes, speed)
         }
         if (!ok) lastError = "فشلت الكتابة على المقبس رغم محاولات إعادة الاتصال"
         logStep(if (ok) "✅ Final write succeeded" else "❌ Final write failed")
@@ -152,21 +218,8 @@ class ThermalPrintService @Inject constructor(
     suspend fun verifyConnection(printerMac: String?): Boolean {
         resetLog()
         logStep("— starting real connection verification —")
-        return writeVerified(pingBytes, printerMac)
+        return writeVerified(pingBytes, printerMac, PrintSpeed.SAFE)
     }
-
-    /** Cheap ESC/POS clone controllers commonly corrupt a single GS v 0
-        raster command once its height passes a few hundred dots — reported
-        symptom is exactly a receipt that starts clean and turns into a dark,
-        torn mess partway down. A document built from the previous, shorter
-        layout usually stayed under that limit by luck; the redesigned one
-        (taller: bordered tables, a boxed total) regularly doesn't. The fix
-        every mature ESC/POS library uses is to never send one raster block
-        for a whole document: cut it into independent horizontal bands, each
-        safely under the danger zone, and send them as separate back-to-back
-        GS v 0 commands — the printer reassembles them into one continuous
-        image with no visible seam. */
-    private val maxRasterBandHeight = 200
 
     /** The highest threshold ever applied, whatever the saved setting says.
         The page background is forced to pure white (255) and the app's pale
@@ -183,136 +236,207 @@ class ThermalPrintService @Inject constructor(
         burn a metre of paper and the battery on a black page. */
     private val maxPlausibleBlackRatio = 0.6
 
+    /** The picture reduced to one bit per dot, row by row, plus how much ink each row has. */
+    private class PackedRaster(
+        val widthPx: Int,
+        val rowBytes: Int,
+        val height: Int,
+        val bits: ByteArray,
+        val inkPerRow: IntArray,
+        val blackCount: Long,
+    ) {
+        val blackRatio: Double
+            get() {
+                val total = widthPx.toLong() * height.toLong()
+                return if (total == 0L) 0.0 else blackCount.toDouble() / total
+            }
+    }
+
     /**
-     * GS v 0 raster command from a Bitmap, fixed-threshold black/white (no
-     * dithering) — matches _buildRasterCommand exactly, including the
-     * reasoning: dithering is great for photos but makes anti-aliased text
-     * edges look faded at 203dpi, whereas a hard threshold makes text bolder
-     * and clearer, which is what an invoice/receipt actually needs.
+     * Fixed-threshold black/white (no dithering) — matches _buildRasterCommand's
+     * reasoning: dithering is great for photos but makes anti-aliased text edges
+     * look faded at 203dpi, whereas a hard threshold makes text bolder and clearer,
+     * which is what an invoice/receipt actually needs.
+     *
+     * Read in strips of 64 rows rather than all at once: a long customer statement
+     * is thousands of rows, and a whole-picture pixel array of that size is what
+     * runs a low-memory phone out of heap.
      */
-    private fun buildRasterCommand(bitmap: Bitmap, threshold: Int, blackCount: LongArray): ByteArray {
+    private fun thresholdToBits(bitmap: Bitmap, threshold: Int): PackedRaster {
         val width = bitmap.width
         val height = bitmap.height
         val rowBytes = (width + 7) / 8
-        val packed = ByteArray(rowBytes * height)
+        val bits = ByteArray(rowBytes * height)
+        val inkPerRow = IntArray(height)
+        val stripRows = 64
+        val strip = IntArray(width * stripRows)
+        var black = 0L
 
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val px = pixels[y * width + x]
-                val gray = 0.299 * Color.red(px) + 0.587 * Color.green(px) + 0.114 * Color.blue(px)
-                if (gray <= threshold) {
-                    val i = y * rowBytes + (x shr 3)
-                    packed[i] = (packed[i].toInt() or (0x80 shr (x and 7))).toByte()
-                    blackCount[0]++
+        var firstRow = 0
+        while (firstRow < height) {
+            val rows = minOf(stripRows, height - firstRow)
+            bitmap.getPixels(strip, 0, width, 0, firstRow, width, rows)
+            for (r in 0 until rows) {
+                val y = firstRow + r
+                val pixelBase = r * width
+                val byteBase = y * rowBytes
+                var rowInk = 0
+                for (x in 0 until width) {
+                    val px = strip[pixelBase + x]
+                    // Integer form of 0.299 R + 0.587 G + 0.114 B (weights sum to 256).
+                    val gray = (77 * Color.red(px) + 150 * Color.green(px) + 29 * Color.blue(px)) shr 8
+                    if (gray <= threshold) {
+                        val i = byteBase + (x shr 3)
+                        bits[i] = (bits[i].toInt() or (0x80 shr (x and 7))).toByte()
+                        rowInk++
+                    }
                 }
+                inkPerRow[y] = rowInk
+                black += rowInk
             }
+            firstRow += rows
         }
-
-        val header = byteArrayOf(
-            0x1D, 0x76, 0x30, 0x00,
-            (rowBytes and 0xFF).toByte(), ((rowBytes shr 8) and 0xFF).toByte(),
-            (height and 0xFF).toByte(), ((height shr 8) and 0xFF).toByte(),
-        )
-        return header + packed
+        return PackedRaster(width, rowBytes, height, bits, inkPerRow, black)
     }
 
-    /** [buildRasterCommand], split into independent bands of at most
-        [maxRasterBandHeight] dots each — see that property's doc for why. */
-    private fun buildRasterBands(bitmap: Bitmap, threshold: Int): Pair<ByteArray, Double> {
-        val out = ByteArrayOutputStream()
-        val blackCount = LongArray(1)
-        var y = 0
-        while (y < bitmap.height) {
-            val bandHeight = minOf(maxRasterBandHeight, bitmap.height - y)
-            val band = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, bandHeight)
-            out.write(buildRasterCommand(band, threshold, blackCount))
-            y += bandHeight
+    /** ESC @, then the picture as back-to-back GS v 0 bands cut at [cuts], a short
+        feed, and a partial cut. */
+    private fun buildPayload(raster: PackedRaster, cuts: List<Int>): ByteArray {
+        val out = ByteArrayOutputStream(raster.bits.size + 64)
+        out.write(byteArrayOf(0x1B, 0x40))
+        var start = 0
+        for (end in cuts) {
+            val bandHeight = end - start
+            out.write(
+                byteArrayOf(
+                    0x1D, 0x76, 0x30, 0x00,
+                    (raster.rowBytes and 0xFF).toByte(), ((raster.rowBytes shr 8) and 0xFF).toByte(),
+                    (bandHeight and 0xFF).toByte(), ((bandHeight shr 8) and 0xFF).toByte(),
+                )
+            )
+            out.write(raster.bits, start * raster.rowBytes, bandHeight * raster.rowBytes)
+            start = end
         }
-        val total = bitmap.width.toLong() * bitmap.height.toLong()
-        return out.toByteArray() to (if (total == 0L) 0.0 else blackCount[0].toDouble() / total)
+        out.write(byteArrayOf(0x1B, 0x64, 0x02))
+        out.write(byteArrayOf(0x1D, 0x56, 0x01))
+        return out.toByteArray()
     }
 
     /**
      * Renders the PDF's first page at 80mm/203dpi (≈576px wide, same target
      * as the Flutter version), flattens onto an explicit white background
-     * (defends against a transparent decode reading as black), and prints it
-     * as a raster image rather than ESC/POS text — thermal-printer codepages
-     * don't shape Arabic correctly, so the PDF (already laid out correctly
-     * via StaticLayout) is what actually gets sent, just as a picture.
+     * (defends against a transparent decode reading as black).
      */
-    suspend fun printPdf(pdfFile: File, printerMac: String?, blackThreshold: Int = 175): Boolean = withContext(Dispatchers.IO) {
-        resetLog()
-        logStep("— starting print (PDF: ${pdfFile.length()} bytes) —")
-
-        val targetWidthPx = 576
-        val bitmap = try {
-            ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                PdfRenderer(descriptor).use { renderer ->
-                    renderer.openPage(0).use { page ->
-                        val scale = targetWidthPx.toFloat() / page.width
-                        val targetHeightPx = (page.height * scale).toInt()
-                        val raw = Bitmap.createBitmap(targetWidthPx, targetHeightPx, Bitmap.Config.ARGB_8888)
-                        Canvas(raw).drawColor(Color.WHITE)
-                        // Same render mode as the on-screen preview, which is the one
-                        // known to come out right on the real device (the preview looks
-                        // fine while the print did not, and FOR_PRINT was the untested
-                        // difference).
-                        page.render(raw, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        // Then flatten onto a fresh white bitmap with real alpha
-                        // blending. The threshold below reads only the RGB channels, so
-                        // any pixel the renderer left transparent (RGB 0,0,0) would count
-                        // as black; the preview never shows that because a transparent
-                        // pixel just displays the screen behind it.
-                        val flat = Bitmap.createBitmap(targetWidthPx, targetHeightPx, Bitmap.Config.ARGB_8888)
-                        Canvas(flat).apply {
-                            drawColor(Color.WHITE)
-                            drawBitmap(raw, 0f, 0f, null)
-                        }
-                        raw.recycle()
-                        flat
+    private fun rasterizePdf(pdfFile: File): Bitmap =
+        ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                renderer.openPage(0).use { page ->
+                    val scale = PRINT_WIDTH_DOTS.toFloat() / page.width
+                    val targetHeightPx = (page.height * scale).toInt()
+                    val raw = Bitmap.createBitmap(PRINT_WIDTH_DOTS, targetHeightPx, Bitmap.Config.ARGB_8888)
+                    Canvas(raw).drawColor(Color.WHITE)
+                    // Same render mode as the on-screen preview, which is the one
+                    // known to come out right on the real device (the preview looks
+                    // fine while the print did not, and FOR_PRINT was the untested
+                    // difference).
+                    page.render(raw, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    // Then flatten onto a fresh white bitmap with real alpha
+                    // blending. The threshold reads only the RGB channels, so any
+                    // pixel the renderer left transparent (RGB 0,0,0) would count
+                    // as black; the preview never shows that because a transparent
+                    // pixel just displays the screen behind it.
+                    val flat = Bitmap.createBitmap(PRINT_WIDTH_DOTS, targetHeightPx, Bitmap.Config.ARGB_8888)
+                    Canvas(flat).apply {
+                        drawColor(Color.WHITE)
+                        drawBitmap(raw, 0f, 0f, null)
                     }
+                    raw.recycle()
+                    flat
                 }
             }
-        } catch (e: Exception) {
-            logStep("❌ Failed to rasterize PDF: ${e.message}")
-            lastError = "فشل تحويل المستند إلى صورة قابلة للطباعة"
-            return@withContext false
         }
-        logStep("Rasterized PDF to ${bitmap.width}×${bitmap.height}")
 
+    /** Threshold → bands cut in blank paper → ESC/POS payload → send. The connection
+        is already being opened in [connection] and is awaited only once the payload is ready. */
+    private suspend fun sendBitmap(
+        bitmap: Bitmap,
+        printerMac: String?,
+        blackThreshold: Int,
+        speed: PrintSpeed,
+        connection: Deferred<Boolean>,
+    ): Boolean {
         val threshold = blackThreshold.coerceIn(0, maxEffectiveThreshold)
-        logStep("Black threshold: saved=$blackThreshold, used=$threshold")
+        logStep("Black threshold: saved=$blackThreshold, used=$threshold; speed=${speed.name}")
 
-        var blackRatio = 0.0
-        val payload = try {
-            val (raster, ratio) = buildRasterBands(bitmap, threshold)
-            blackRatio = ratio
-            val bandCount = (bitmap.height + maxRasterBandHeight - 1) / maxRasterBandHeight
-            val built = byteArrayOf(0x1B, 0x40) + raster + byteArrayOf(0x1B, 0x64, 0x02) + byteArrayOf(0x1D, 0x56, 0x01)
-            logStep("Black pixels: ${"%.1f".format(ratio * 100)}% of the picture")
-            logStep("Final ESC/POS payload size: ${built.size} bytes ($bandCount raster band(s))")
-            built
+        val built = try {
+            val packed = thresholdToBits(bitmap, threshold)
+            val bandCuts = RasterBands.cuts(packed.inkPerRow)
+            Triple(packed, bandCuts, buildPayload(packed, bandCuts))
         } catch (e: Exception) {
             logStep("❌ Failed to build ESC/POS command: ${e.message}")
             lastError = "فشل تجهيز بيانات الطباعة"
-            return@withContext false
+            return false
         }
+        val raster = built.first
+        val cuts = built.second
+        val payload = built.third
+        logStep("Black pixels: ${"%.1f".format(raster.blackRatio * 100)}% of the picture")
+        logStep("Final ESC/POS payload size: ${payload.size} bytes (${cuts.size} raster band(s), cut at blank rows: $cuts)")
 
-        if (blackRatio > maxPlausibleBlackRatio) {
-            logStep("❌ Refusing to print: ${"%.0f".format(blackRatio * 100)}% of the picture is black — a receipt is mostly white")
+        if (raster.blackRatio > maxPlausibleBlackRatio) {
+            logStep("❌ Refusing to print: ${"%.0f".format(raster.blackRatio * 100)}% of the picture is black — a receipt is mostly white")
             lastError = "الصورة الناتجة سوداء تقريبًا بالكامل — أوقفت الطباعة حتى لا تُهدر الورق"
-            return@withContext false
+            return false
         }
 
-        writeVerified(payload, printerMac)
+        if (!connection.await()) {
+            logStep("Final failure: could not open the printer connection")
+            lastError = "لا يوجد اتصال بالطابعة"
+            return false
+        }
+        return writeVerified(payload, printerMac, speed)
+    }
+
+    /**
+     * Rasterizes the PDF and prints it as a raster image rather than ESC/POS
+     * text — thermal-printer codepages don't shape Arabic correctly, so the PDF
+     * (already laid out correctly via StaticLayout) is what actually gets sent,
+     * just as a picture.
+     */
+    suspend fun printPdf(
+        pdfFile: File,
+        printerMac: String?,
+        blackThreshold: Int = DEFAULT_BLACK_THRESHOLD,
+        speed: PrintSpeed = PrintSpeed.BALANCED,
+    ): Boolean = withContext(Dispatchers.IO) {
+        resetLog()
+        logStep("— starting print (PDF: ${pdfFile.length()} bytes) —")
+        coroutineScope {
+            // The Bluetooth connect (often the slowest step) runs while the picture is prepared.
+            val connection = async { ensureConnected(printerMac) }
+            val bitmap = try {
+                rasterizePdf(pdfFile)
+            } catch (e: Exception) {
+                logStep("❌ Failed to rasterize PDF: ${e.message}")
+                lastError = "فشل تحويل المستند إلى صورة قابلة للطباعة"
+                return@coroutineScope false
+            }
+            logStep("Rasterized PDF to ${bitmap.width}×${bitmap.height}")
+            try {
+                sendBitmap(bitmap, printerMac, blackThreshold, speed, connection)
+            } finally {
+                bitmap.recycle()
+            }
+        }
     }
 
     /** Convenience wrapper for the common case (the settings screen's saved
         printer) so callers don't need to read savedPrinterMac themselves first. */
-    suspend fun printPdfUsingSavedPrinter(pdfFile: File, blackThreshold: Int = 175): Boolean {
+    suspend fun printPdfUsingSavedPrinter(
+        pdfFile: File,
+        blackThreshold: Int = DEFAULT_BLACK_THRESHOLD,
+        speed: PrintSpeed = PrintSpeed.BALANCED,
+    ): Boolean {
         val mac = savedPrinterMac.first()
         if (mac.isNullOrEmpty()) {
             resetLog()
@@ -320,6 +444,82 @@ class ThermalPrintService @Inject constructor(
             lastError = "لم يتم اختيار طابعة بعد — افتح إعدادات الطباعة"
             return false
         }
-        return printPdf(pdfFile, mac, blackThreshold)
+        return printPdf(pdfFile, mac, blackThreshold, speed)
+    }
+
+    /**
+     * A built-in test page, about 9cm long: rules of five thicknesses, a solid black bar,
+     * text, and a dense area of fine lines (the hardest thing for a printer that is being
+     * fed too slowly — it shows as stops, pale streaks or missing lines). It goes through
+     * exactly the same path as a real receipt, so printing it at each [PrintSpeed] shows
+     * in a minute which one suits this printer.
+     */
+    suspend fun printTestPage(
+        printerMac: String?,
+        blackThreshold: Int,
+        speed: PrintSpeed,
+    ): Boolean = withContext(Dispatchers.IO) {
+        resetLog()
+        logStep("— starting test page —")
+        coroutineScope {
+            val connection = async { ensureConnected(printerMac) }
+            val bitmap = renderTestPage()
+            try {
+                sendBitmap(bitmap, printerMac, blackThreshold, speed, connection)
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun renderTestPage(): Bitmap {
+        val width = PRINT_WIDTH_DOTS
+        val height = 760
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+        val right = width - 24f
+        var y = 14f
+
+        text.textAlign = Paint.Align.CENTER
+        text.textSize = 30f
+        text.isFakeBoldText = true
+        canvas.drawText("صفحة اختبار الطباعة", width / 2f, y + 30f, text)
+        y += 52f
+        text.isFakeBoldText = false
+        text.textSize = 20f
+        canvas.drawText("اختبار السرعة والوضوح", width / 2f, y + 20f, text)
+        y += 40f
+
+        // Rules 1, 2, 3, 4 and 6 dots thick — which of them survive, and how dark they come out.
+        for (thickness in intArrayOf(1, 2, 3, 4, 6)) {
+            canvas.drawRect(24f, y, right, y + thickness, ink)
+            y += thickness + 10f
+        }
+
+        // A full-width black bar: the heaviest load on the print head.
+        canvas.drawRect(0f, y, width.toFloat(), y + 36f, ink)
+        y += 36f + 12f
+
+        text.textAlign = Paint.Align.RIGHT
+        text.textSize = 22f
+        canvas.drawText("غسيل صحون بالرمان 5 لتر", right, y + 22f, text)
+        y += 36f
+        text.textSize = 26f
+        canvas.drawText("الإجمالي 1,700 ر.ي", right, y + 26f, text)
+        y += 40f
+        text.textSize = 18f
+        canvas.drawText("0123456789  1,234,567", right, y + 18f, text)
+        y += 34f
+
+        // Dense fine lines — a 2-dot line every 8 dots — to the end of the page.
+        while (y < height - 20f) {
+            canvas.drawRect(24f, y, right, y + 2f, ink)
+            y += 8f
+        }
+        return bitmap
     }
 }

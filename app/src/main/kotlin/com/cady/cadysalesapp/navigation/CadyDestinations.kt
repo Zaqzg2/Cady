@@ -50,8 +50,8 @@ sealed class CadyDestination(val route: String) {
     data object SyncOutboxInbox : CadyDestination("sync/outbox_inbox")
     data object BackupManagement : CadyDestination("backup")
 
-    // Manager
-    data object ManagerRoot : CadyDestination("manager")
+    // Manager — screens inside the same app and the same navigation graph as the rep's;
+    // they are only reachable (and only shown) when the signed-in account is a manager.
     data object ManagerDashboard : CadyDestination("manager/dashboard")
     data object ManagerUsers : CadyDestination("manager/users")
     data object ManagerSyncHub : CadyDestination("manager/sync_hub")

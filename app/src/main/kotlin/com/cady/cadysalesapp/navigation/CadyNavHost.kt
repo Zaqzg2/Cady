@@ -3,8 +3,13 @@ package com.cady.cadysalesapp.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.cady.cadysalesapp.data.local.entity.UserRole
 import com.cady.cadysalesapp.ui.IncomingFileViewModel
 import com.cady.cadysalesapp.ui.customerdetail.CustomerDetailScreen
 import com.cady.cadysalesapp.ui.customers.CustomersScreen
@@ -26,8 +32,10 @@ import com.cady.cadysalesapp.ui.home.HomeScreen
 import com.cady.cadysalesapp.ui.invoice.InvoiceScreen
 import com.cady.cadysalesapp.ui.lock.LockScreen
 import com.cady.cadysalesapp.ui.login.LoginScreen
+import com.cady.cadysalesapp.ui.manager.ManagerDashboardScreen
 import com.cady.cadysalesapp.ui.products.ProductsScreen
 import com.cady.cadysalesapp.ui.receipt.ReceiptScreen
+import com.cady.cadysalesapp.ui.session.SessionViewModel
 import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
 
 /**
@@ -41,7 +49,12 @@ import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
 fun CadyNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = CadyDestination.Login.route,
+    sessionViewModel: SessionViewModel = hiltViewModel(),
 ) {
+    // One app for both roles: the signed-in account's role decides which screens exist.
+    val currentUser by sessionViewModel.currentUser.collectAsState()
+    val isManager = currentUser?.role == UserRole.MANAGER
+
     // A sync file shared into Cady from another app: once the person is signed in (they are on
     // Home), bring them to the sync screen, which asks before importing anything.
     val incomingViewModel: IncomingFileViewModel = hiltViewModel()
@@ -53,6 +66,38 @@ fun CadyNavHost(
             navController.navigate(CadyDestination.Sync.route) { launchSingleTop = true }
         }
     }
+
+    // Signed out from anywhere (Settings → تسجيل الخروج, or "forgot PIN" on the lock):
+    // back to Login with an empty back stack, so Back can't return into the old session.
+    LaunchedEffect(currentUser, currentRoute) {
+        val route = currentRoute ?: return@LaunchedEffect
+        if (currentUser == null &&
+            route != CadyDestination.Login.route &&
+            route != CadyDestination.SetupManager.route
+        ) {
+            navController.navigate(CadyDestination.Login.route) {
+                popUpTo(navController.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // The manager's screens are not for reps: a rep account that somehow lands on one
+    // (restored state, an old link) is sent back Home. Real protection stays in the
+    // Firestore rules; this only keeps the screens themselves out of reach.
+    LaunchedEffect(currentUser, isManager, currentRoute) {
+        val route = currentRoute ?: return@LaunchedEffect
+        if (currentUser != null && !isManager && route.startsWith("manager")) {
+            navController.navigate(CadyDestination.Home.route) {
+                popUpTo(CadyDestination.Home.route)
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // Deliberately reads the role inside its own composable: capturing `isManager` here would
+    // make the NavHost rebuild its whole graph every time the signed-in account changes.
+    val bottomBar: @Composable () -> Unit = { RoleBottomBar(navController, sessionViewModel) }
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(CadyDestination.SetupManager.route) {
@@ -68,10 +113,8 @@ fun CadyNavHost(
         composable(CadyDestination.Login.route) {
             LoginScreen(
                 onLoginSuccess = {
-                    // TODO(Phase 2+): branch to CadyDestination.ManagerRoot for a
-                    // manager account instead of Home once ManagerRootNav exists —
-                    // AccountRepository.currentUser already carries the role needed
-                    // to make that call, this just isn't wired up yet.
+                    // Same Home for both roles — a manager account simply gets the extra
+                    // manager screens (see isManager above); there is no separate manager app.
                     navController.navigate(CadyDestination.Home.route) {
                         popUpTo(CadyDestination.Login.route) { inclusive = true }
                     }
@@ -80,6 +123,8 @@ fun CadyNavHost(
             )
         }
         composable(CadyDestination.Lock.route) {
+            // Kept only so the route resolves; the real lock is the overlay in AppRoot,
+            // which covers whatever screen is showing without touching the back stack.
             LockScreen(onUnlocked = { navController.popBackStack() })
         }
 
@@ -92,13 +137,13 @@ fun CadyNavHost(
                 onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
                 onViewAllDocuments = { navController.navigate(CadyDestination.DocumentsList.route) },
                 onDocumentClick = { type, id -> navController.navigate(CadyDestination.PdfPreview.createRoute(type, id)) },
-                bottomBar = { CadyBottomBar(navController) },
+                bottomBar = bottomBar,
             )
         }
         composable(CadyDestination.Customers.route) {
             CustomersScreen(
                 onCustomerClick = { id -> navController.navigate(CadyDestination.CustomerDetail.createRoute(id)) },
-                bottomBar = { CadyBottomBar(navController) },
+                bottomBar = bottomBar,
             )
         }
         composable(CadyDestination.CustomerDetail.route) { backStackEntry ->
@@ -139,8 +184,11 @@ fun CadyNavHost(
                 onMapClick = { /* TODO(Phase 2 polish): geocode the address, launch geo: intent */ },
             )
         }
-        composable(CadyDestination.Products.route) { ProductsScreen(bottomBar = { CadyBottomBar(navController) }) }
-        composable(CadyDestination.Reports.route) { PlaceholderScreen("التقارير") }
+        composable(CadyDestination.Products.route) {
+            val user by sessionViewModel.currentUser.collectAsState()
+            ProductsScreen(canEdit = user?.role == UserRole.MANAGER, bottomBar = bottomBar)
+        }
+        composable(CadyDestination.Reports.route) { PlaceholderScreen("التقارير", bottomBar = bottomBar) }
         composable(
             CadyDestination.Invoice.route,
             arguments = listOf(
@@ -182,7 +230,10 @@ fun CadyNavHost(
         }
 
         composable(CadyDestination.SettingsHub.route) {
+            val user by sessionViewModel.currentUser.collectAsState()
             com.cady.cadysalesapp.ui.settings.SettingsHubScreen(
+                accountName = user?.displayName,
+                isManager = user?.role == UserRole.MANAGER,
                 onCompanyClick = { navController.navigate(CadyDestination.SettingsCompany.route) },
                 onPrintingClick = { navController.navigate(CadyDestination.SettingsPrinting.route) },
                 onAppearanceClick = { navController.navigate(CadyDestination.SettingsAppearance.route) },
@@ -190,6 +241,8 @@ fun CadyNavHost(
                 onDataClick = { navController.navigate(CadyDestination.SettingsData.route) },
                 onSyncClick = { navController.navigate(CadyDestination.Sync.route) },
                 onBackupClick = { navController.navigate(CadyDestination.BackupManagement.route) },
+                onManagerClick = { navController.navigate(CadyDestination.ManagerDashboard.route) },
+                onLogoutClick = { sessionViewModel.logout() },
             )
         }
         composable(CadyDestination.SettingsCompany.route) { com.cady.cadysalesapp.ui.settings.SettingsCompanyScreen() }
@@ -215,24 +268,62 @@ fun CadyNavHost(
             com.cady.cadysalesapp.ui.backup.BackupManagementScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(CadyDestination.ManagerDashboard.route) { PlaceholderScreen("لوحة تحكم المدير") }
-        composable(CadyDestination.ManagerUsers.route) { PlaceholderScreen("المندوبون") }
-        composable(CadyDestination.ManagerSyncHub.route) { PlaceholderScreen("مركز المزامنة") }
-        composable(CadyDestination.ManagerLiveActivity.route) { PlaceholderScreen("النشاط المباشر") }
-        composable(CadyDestination.ManagerImport.route) { PlaceholderScreen("استيراد من مندوب") }
-        composable(CadyDestination.ManagerExport.route) { PlaceholderScreen("إنشاء تحديث") }
-        composable(CadyDestination.ManagerSyncLog.route) { PlaceholderScreen("سجل المزامنة") }
+        composable(CadyDestination.ManagerDashboard.route) {
+            val user by sessionViewModel.currentUser.collectAsState()
+            ManagerDashboardScreen(
+                displayName = user?.displayName.orEmpty(),
+                onUsersClick = { navController.navigate(CadyDestination.ManagerUsers.route) },
+                onLiveActivityClick = { navController.navigate(CadyDestination.ManagerLiveActivity.createRoute()) },
+                onImportClick = { navController.navigate(CadyDestination.ManagerImport.route) },
+                onExportClick = { navController.navigate(CadyDestination.ManagerExport.route) },
+                onSyncLogClick = { navController.navigate(CadyDestination.ManagerSyncLog.route) },
+                bottomBar = bottomBar,
+            )
+        }
+        // The rest of the manager's tools arrive in the next batch; until then each opens a
+        // titled placeholder with a back arrow, so the hub above never leads anywhere stuck.
+        composable(CadyDestination.ManagerUsers.route) { PlaceholderScreen("المندوبون", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerSyncHub.route) { PlaceholderScreen("مركز المزامنة", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerLiveActivity.route) { PlaceholderScreen("النشاط المباشر", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerImport.route) { PlaceholderScreen("استيراد من مندوب", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerExport.route) { PlaceholderScreen("إنشاء تحديث", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerSyncLog.route) { PlaceholderScreen("سجل المزامنة", onBack = { navController.popBackStack() }) }
     }
 }
 
+/** The bottom bar for whoever is signed in — managers get the extra tab. */
 @Composable
-private fun PlaceholderScreen(title: String) {
-    Scaffold { innerPadding ->
+private fun RoleBottomBar(navController: NavHostController, sessionViewModel: SessionViewModel) {
+    val user by sessionViewModel.currentUser.collectAsState()
+    CadyBottomBar(navController, isManager = user?.role == UserRole.MANAGER)
+}
+
+@Composable
+private fun PlaceholderScreen(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    bottomBar: @Composable () -> Unit = {},
+) {
+    Scaffold(
+        topBar = {
+            if (onBack != null) {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = bottomBar,
+    ) { innerPadding ->
         Box(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentAlignment = Alignment.Center,
         ) {
-            Text(title)
+            Text(if (onBack != null) "$title — قيد البناء" else title)
         }
     }
 }

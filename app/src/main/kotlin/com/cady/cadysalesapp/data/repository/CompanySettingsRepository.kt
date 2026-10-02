@@ -21,6 +21,24 @@ enum class AppThemeMode { LIGHT, DARK, SYSTEM }
     kept for reps who print via a phone-connected office printer instead. */
 enum class PdfLayoutMode { THERMAL_80MM, A4 }
 
+/**
+ * How fast a receipt's bytes are pushed to the Bluetooth printer: the size of each
+ * write and the pause after it. A printer prints each dot-row as it arrives, so if
+ * the bytes arrive slower than the head can print them the paper stops and starts
+ * and leaves pale streaks; if they arrive faster than a small printer can swallow,
+ * the picture tears. Which speed is right depends on the printer, hence a choice.
+ */
+enum class PrintSpeed(val chunkSize: Int, val delayMs: Long) {
+    /** 1 KB every 12 ms — the original pacing; slowest, never overruns a small buffer. */
+    SAFE(1024, 12),
+
+    /** 2 KB every 5 ms — the default. */
+    BALANCED(2048, 5),
+
+    /** 4 KB back to back — as fast as the link allows. */
+    FAST(4096, 0),
+}
+
 data class CompanySettings(
     val companyName: String = "",
     val companyAddress: String = "",
@@ -46,7 +64,8 @@ data class CompanySettings(
     /** Extra space (in print-points) added between printed lines, on top of
         each line's natural height. */
     val printLineSpacingExtra: Float = 0f,
-    val printBlackThreshold: Int = 175,
+    val printBlackThreshold: Int = 195,
+    val printSpeed: PrintSpeed = PrintSpeed.BALANCED,
     val hideAmountsInRecents: Boolean = false,
 )
 
@@ -76,6 +95,7 @@ class CompanySettingsRepository @Inject constructor(
         val printFontScale = stringPreferencesKey("print_font_scale")
         val printLineSpacingExtra = stringPreferencesKey("print_line_spacing_extra")
         val blackThreshold = intPreferencesKey("print_black_threshold")
+        val printSpeed = stringPreferencesKey("print_speed")
         val hideAmounts = booleanPreferencesKey("hide_amounts_in_recents")
     }
 
@@ -95,7 +115,8 @@ class CompanySettingsRepository @Inject constructor(
             printLayoutMode = prefs[Keys.printLayoutMode]?.let { runCatching { PdfLayoutMode.valueOf(it) }.getOrNull() } ?: PdfLayoutMode.THERMAL_80MM,
             printFontScale = prefs[Keys.printFontScale]?.toFloatOrNull() ?: 1.0f,
             printLineSpacingExtra = prefs[Keys.printLineSpacingExtra]?.toFloatOrNull() ?: 0f,
-            printBlackThreshold = prefs[Keys.blackThreshold] ?: 175,
+            printBlackThreshold = prefs[Keys.blackThreshold] ?: 195,
+            printSpeed = prefs[Keys.printSpeed]?.let { runCatching { PrintSpeed.valueOf(it) }.getOrNull() } ?: PrintSpeed.BALANCED,
             hideAmountsInRecents = prefs[Keys.hideAmounts] ?: false,
         )
     }
@@ -163,6 +184,10 @@ class CompanySettingsRepository @Inject constructor(
 
     suspend fun updatePrintBlackThreshold(threshold: Int) {
         withContext(NonCancellable) { dataStore.edit { it[Keys.blackThreshold] = threshold } }
+    }
+
+    suspend fun updatePrintSpeed(speed: PrintSpeed) {
+        withContext(NonCancellable) { dataStore.edit { it[Keys.printSpeed] = speed.name } }
     }
 
     suspend fun updateHideAmountsInRecents(enabled: Boolean) {

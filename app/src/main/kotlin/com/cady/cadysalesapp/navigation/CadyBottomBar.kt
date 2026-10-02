@@ -1,6 +1,7 @@
 package com.cady.cadysalesapp.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Home
@@ -24,6 +25,10 @@ private val tabs = listOf(
     TabItem(CadyDestination.Reports.route, "التقارير", Icons.Filled.Assessment),
 )
 
+/** A fifth tab that only a manager account gets — the manager's screens live in the same app. */
+private val managerTab =
+    TabItem(CadyDestination.ManagerDashboard.route, "المدير", Icons.Filled.AdminPanelSettings)
+
 /**
  * This was the missing piece: Home/Customers/Products/Reports each existed as
  * a real screen but nothing let a person move between them — Home's four
@@ -32,12 +37,13 @@ private val tabs = listOf(
  * the current app's "swipe-only settings" pattern from the review doc.
  */
 @Composable
-fun CadyBottomBar(navController: NavHostController) {
+fun CadyBottomBar(navController: NavHostController, isManager: Boolean = false) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+    val visibleTabs = if (isManager) tabs + managerTab else tabs
 
     NavigationBar {
-        tabs.forEach { tab ->
+        visibleTabs.forEach { tab ->
             val selected = currentDestination?.hierarchy?.any { it.route == tab.route } == true
             NavigationBarItem(
                 selected = selected,

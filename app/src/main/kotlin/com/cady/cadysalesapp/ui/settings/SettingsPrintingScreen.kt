@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.data.repository.PdfLayoutMode
+import com.cady.cadysalesapp.data.repository.PrintSpeed
 
 @Composable
 fun SettingsPrintingScreen(
@@ -52,6 +53,7 @@ fun SettingsPrintingScreen(
     val savedMac by viewModel.savedPrinterMac.collectAsState()
     val connectionCheck by viewModel.connectionCheck.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val testPrint by viewModel.testPrint.collectAsState()
 
     var fontScale by remember(settings.printFontScale) { mutableFloatStateOf(settings.printFontScale) }
     var lineSpacing by remember(settings.printLineSpacingExtra) { mutableFloatStateOf(settings.printLineSpacingExtra) }
@@ -159,6 +161,25 @@ fun SettingsPrintingScreen(
                 valueRange = 60f..230f,
             )
 
+            Spacer(Modifier.height(12.dp))
+            Text("سرعة الإرسال للطابعة", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrintSpeed.entries.forEach { speed ->
+                    FilterChip(
+                        selected = settings.printSpeed == speed,
+                        onClick = { viewModel.setPrintSpeed(speed) },
+                        label = { Text(speed.arabicLabel()) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "إن كانت الطباعة تتقطّع أو تظهر فيها خطوط بيضاء جرّب «سريع»، وإن خرجت الصورة مشوّشة أو سوداء جرّب «آمن». اطبع «صفحة اختبار» بعد كل تغيير لتقارن.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             Spacer(Modifier.height(20.dp))
             // Real verified-write status, not a saved-preference badge — matches
             // the reliability fix the current app made after "shows connected,
@@ -199,6 +220,28 @@ fun SettingsPrintingScreen(
                     onClick = { savedMac?.let(viewModel::checkConnection) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("تحقّق من الاتصال الآن") }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = viewModel::printTestPage,
+                    enabled = testPrint !is TestPrintState.Printing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("طباعة صفحة اختبار") }
+                when (val result = testPrint) {
+                    is TestPrintState.Printing -> Text(
+                        "جارٍ الإرسال إلى الطابعة…",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    is TestPrintState.Done -> Text(
+                        "أُرسلت صفحة الاختبار ✓ — افحص الخطوط البيضاء والتقطيع وسماكة الخطوط",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    is TestPrintState.Failed -> Text(
+                        result.message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    else -> {}
+                }
                 Spacer(Modifier.height(20.dp))
             }
 
@@ -226,4 +269,10 @@ fun SettingsPrintingScreen(
             }
         }
     }
+}
+
+private fun PrintSpeed.arabicLabel(): String = when (this) {
+    PrintSpeed.SAFE -> "آمن"
+    PrintSpeed.BALANCED -> "متوازن"
+    PrintSpeed.FAST -> "سريع"
 }

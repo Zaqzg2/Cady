@@ -238,16 +238,34 @@ class PdfService @Inject constructor() {
     private val tableHeaderFill = 0xFFF2ECDD.toInt()
     private val discountRed = 0xFFC62828.toInt()
 
-    private fun thermalTitlePaint(scale: Float) = TextPaint().apply { textSize = 15f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
-    private fun thermalLabelPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; color = 0xFF000000.toInt() }
-    private fun thermalBodyPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; color = 0xFF000000.toInt() }
+    /** Hair-thin Arabic strokes (the connecting line, the dots) come out of the 1-bit
+        conversion broken and grey-looking; a quarter-point of extra outline keeps them
+        solid black. Only for regular-weight text — the bold paints are already heavy. */
+    private val thermalTextStroke = 0.25f
+
+    private fun TextPaint.solidInk(): TextPaint = apply {
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = thermalTextStroke
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    // Title and grand total: 13 (was 15) — one size down, still the largest text on the receipt.
+    private fun thermalTitlePaint(scale: Float) = TextPaint().apply { textSize = 13f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
+    private fun thermalLabelPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; color = 0xFF000000.toInt() }.solidInk()
+    private fun thermalBodyPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; color = 0xFF000000.toInt() }.solidInk()
     private fun thermalCompanyPaint(scale: Float) = TextPaint().apply { textSize = 14f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
     private fun thermalDebtPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
-    private fun thermalCellPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; color = 0xFF000000.toInt() }
+    private fun thermalCellPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; color = 0xFF000000.toInt() }.solidInk()
     private fun thermalCellHeaderPaint(scale: Float) = TextPaint().apply { textSize = 10f * scale; isFakeBoldText = true; color = 0xFF000000.toInt() }
-    private fun thermalDiscountPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; color = discountRed }
-    private fun thermalRulePaint() = Paint().apply { strokeWidth = 1f; color = 0xFF000000.toInt() }
-    private fun thermalBorderPaint() = Paint().apply { strokeWidth = 1f; color = 0xFF000000.toInt(); style = Paint.Style.STROKE }
+    private fun thermalDiscountPaint(scale: Float) = TextPaint().apply { textSize = 11f * scale; color = discountRed }.solidInk()
+
+    // Horizontal lines are the first thing the 1-bit print loses: at the page-to-dot scale
+    // (about 2.5 dots per point) a 1pt line lands on fractional dot rows, comes out as a
+    // faint grey pair of rows, and the threshold then drops pieces of it — a pale, broken
+    // line. 1.6pt is about 4 dots, which stays solid wherever it falls.
+    private fun thermalRulePaint() = Paint().apply { strokeWidth = 1.6f; color = 0xFF000000.toInt() }
+    private fun thermalDashPaint() = Paint().apply { strokeWidth = 1.3f; color = 0xFF000000.toInt() }
+    private fun thermalBorderPaint() = Paint().apply { strokeWidth = 1.3f; color = 0xFF000000.toInt(); style = Paint.Style.STROKE }
 
     private fun loadBitmapOrNull(path: String?): android.graphics.Bitmap? =
         path?.takeIf { it.isNotBlank() }
@@ -407,7 +425,7 @@ class PdfService @Inject constructor() {
         val headerStyle = thermalCellHeaderPaint(scale)
         val cellStyle = thermalCellPaint(scale)
         val borderPaint = thermalBorderPaint()
-        val rowRulePaint = Paint().apply { strokeWidth = 0.6f; color = 0xFF000000.toInt() }
+        val rowRulePaint = Paint().apply { strokeWidth = 1.1f; color = 0xFF000000.toInt() }
 
         val colWidths = colFractions.map { it * contentWidth }
         val colRights = ArrayList<Float>(columns)
@@ -472,7 +490,7 @@ class PdfService @Inject constructor() {
         val rowHeight = measure.drawLabelValueRow(label, value, right - pad, 0f, innerWidth, style, style, labelFraction = 0.6f)
         val boxHeight = rowHeight + pad * 2
         this.fillRect(left, top, right, top + boxHeight, tableHeaderFill)
-        this.strokeDashedRect(left, top, right, top + boxHeight, thermalRulePaint())
+        this.strokeDashedRect(left, top, right, top + boxHeight, thermalDashPaint())
         this.drawLabelValueRow(label, value, right - pad, top + pad, innerWidth, style, style, labelFraction = 0.6f)
         return boxHeight
     }
@@ -512,7 +530,7 @@ class PdfService @Inject constructor() {
         val right = thermalPageWidth - thermalMargin
         var y = startY
         y += canvas.rtlText(title, right, y, contentWidth, thermalTitlePaint(scale), Layout.Alignment.ALIGN_CENTER) + 6f
-        canvas.drawDashedHLine(thermalMargin, right, y, thermalRulePaint())
+        canvas.drawDashedHLine(thermalMargin, right, y, thermalDashPaint())
         return y + 8f
     }
 

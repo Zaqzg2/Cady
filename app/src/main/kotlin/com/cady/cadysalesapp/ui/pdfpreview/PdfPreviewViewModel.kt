@@ -71,6 +71,9 @@ class PdfPreviewViewModel @Inject constructor(
                 val outputFile = File(pdfDir, "$docType-$docId.pdf")
                 val company = companySettingsRepository.settings.first()
                 val use80mm = company.printLayoutMode == PdfLayoutMode.THERMAL_80MM
+                // Open the Bluetooth connection now, while the person looks at the
+                // preview, so the tap on "print" doesn't wait for it.
+                if (use80mm) viewModelScope.launch { thermalPrintService.warmUp() }
 
                 when (docType) {
                     "invoice" -> {
@@ -113,8 +116,12 @@ class PdfPreviewViewModel @Inject constructor(
         val file = (_state.value as? PdfPreviewState.Ready)?.file ?: return
         _thermalPrintState.value = ThermalPrintState.Printing
         viewModelScope.launch {
-            val threshold = companySettingsRepository.settings.first().printBlackThreshold
-            val ok = thermalPrintService.printPdfUsingSavedPrinter(file, threshold)
+            val printSettings = companySettingsRepository.settings.first()
+            val ok = thermalPrintService.printPdfUsingSavedPrinter(
+                file,
+                printSettings.printBlackThreshold,
+                printSettings.printSpeed,
+            )
             _thermalPrintState.value = if (ok) {
                 ThermalPrintState.Success
             } else {

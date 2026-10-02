@@ -101,10 +101,14 @@ class BluetoothPrinterBridge @Inject constructor(
 
     suspend fun isConnected(): Boolean = withContext(Dispatchers.IO) { socket?.isConnected == true }
 
-    suspend fun writeBytes(bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+    suspend fun writeBytes(bytes: ByteArray): Boolean = writeBytes(bytes, 0, bytes.size)
+
+    /** Writes [length] bytes starting at [offset] — lets a large payload be sent in slices
+        without allocating a copy of every slice. */
+    suspend fun writeBytes(bytes: ByteArray, offset: Int, length: Int): Boolean = withContext(Dispatchers.IO) {
         val out = outputStream ?: return@withContext false
         try {
-            out.write(bytes)
+            out.write(bytes, offset, length)
             out.flush()
             true
         } catch (e: IOException) {
