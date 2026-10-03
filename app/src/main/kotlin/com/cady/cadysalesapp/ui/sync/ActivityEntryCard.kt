@@ -42,12 +42,18 @@ internal fun statusLabel(status: SyncActivityStatus): String = when (status) {
     SyncActivityStatus.FAILED -> "فشلت"
 }
 
-/** One line of the sync log. [onResend] is only passed for exports whose file is still stored. */
+/**
+ * One line of the sync log. [onResend] is only passed for exports whose file is still stored.
+ * [showAckStatus] is the rep's "waiting for the manager's confirmation" line; on the manager's
+ * own device (his updates and receipt-acks) there is nobody to wait for, so it is switched off
+ * and the entry's own detail is shown instead.
+ */
 @Composable
 internal fun ActivityEntryCard(
     entry: SyncActivityEntry,
     modifier: Modifier = Modifier,
     onResend: (() -> Unit)? = null,
+    showAckStatus: Boolean = true,
 ) {
     val icon = when (entry.kind) {
         SyncActivityKind.FIREBASE_SYNC -> Icons.Filled.Sync
@@ -71,7 +77,7 @@ internal fun ActivityEntryCard(
             if (entry.counts.total > 0) {
                 Text(entry.counts.summaryText(), style = MaterialTheme.typography.bodyMedium)
             }
-            if (!entry.detail.isNullOrBlank() && entry.kind != SyncActivityKind.MANUAL_EXPORT) {
+            if (!entry.detail.isNullOrBlank() && (entry.kind != SyncActivityKind.MANUAL_EXPORT || !showAckStatus)) {
                 Text(
                     entry.detail,
                     style = MaterialTheme.typography.bodySmall,
@@ -79,11 +85,13 @@ internal fun ActivityEntryCard(
                 )
             }
             if (entry.kind == SyncActivityKind.MANUAL_EXPORT) {
-                Text(
-                    if (entry.acknowledged) "✓ أكّد المدير الاستلام" else "بانتظار تأكيد استلام المدير",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (entry.acknowledged) SyncColors.Synced else SyncColors.Pending,
-                )
+                if (showAckStatus) {
+                    Text(
+                        if (entry.acknowledged) "✓ أكّد المدير الاستلام" else "بانتظار تأكيد استلام المدير",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (entry.acknowledged) SyncColors.Synced else SyncColors.Pending,
+                    )
+                }
                 if (onResend != null) {
                     TextButton(onClick = onResend) {
                         Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))

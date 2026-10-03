@@ -36,6 +36,9 @@ sealed class AccountException(message: String) : Exception(message) {
         ever allowed once this check has run and come back negative. */
     class ManagerAlreadyExists : AccountException("يوجد حساب مدير مسجّل بالفعل — سجّل الدخول بدل إنشاء حساب جديد")
     class ManagerCheckUnavailable : AccountException("تعذّر التأكد من عدم وجود حساب مدير سابق — تحقّق من اتصال الإنترنت وأعد المحاولة")
+
+    /** The manager switched this rep off (Settings → المندوبون). */
+    class AccountDisabled : AccountException("هذا الحساب موقوف — تواصل مع المدير لإعادة تفعيله")
 }
 
 @Singleton
@@ -94,6 +97,48 @@ class AccountRepository @Inject constructor(
         )
     }
 
+    // ------------------------------------------------------------ the manager's rep list
+
+    /** Every rep account known on this device, live. */
+    fun observeReps(): Flow<List<UserAccountEntity>> = userAccountDao.observeReps()
+
+    /**
+     * Pulls every rep account from Firestore into the local list — a rep created on another
+     * device (or before this install) only appears after this. Existing local password hashes
+     * are kept (the cloud never has them; offline login needs them). Returns how many were read.
+     */
+    suspend fun refreshRepsFromCloud(): Int {
+        val snapshot = usersCollection.whereEqualTo("role", "rep").get().await()
+        val fetched = snapshot.documents.mapNotNull { doc ->
+            try {
+                doc.toUserAccountEntity(doc.id, fallbackUsername = doc.getString("username") ?: doc.id)
+            } catch (e: Exception) {
+                null // one malformed profile must not hide all the others
+            }
+        }
+        val merged = fetched.map { remote ->
+            val local = userAccountDao.getById(remote.id)
+            if (local != null) remote.copy(passwordHash = local.passwordHash) else remote
+        }
+        userAccountDao.upsertAll(merged)
+        return merged.size
+    }
+
+    /** Switches a rep on or off. A switched-off rep can no longer sign in (see [login]). */
+    suspend fun setRepActive(repId: String, active: Boolean) {
+        usersCollection.document(repId).update("isActive", active).await()
+        userAccountDao.getById(repId)?.let { userAccountDao.upsert(it.copy(isActive = active)) }
+    }
+
+    suspend fun updateRepProfile(repId: String, displayName: String, repNumber: Int?, deviceName: String?) {
+        usersCollection.document(repId)
+            .update("displayName", displayName, "repNumber", repNumber, "deviceName", deviceName)
+            .await()
+        userAccountDao.getById(repId)?.let {
+            userAccountDao.upsert(it.copy(displayName = displayName, repNumber = repNumber, deviceName = deviceName))
+        }
+    }
+
     suspend fun login(username: String, password: String): UserAccountEntity {
         val email = emailFor(username)
         return try {
@@ -106,6 +151,11 @@ class AccountRepository @Inject constructor(
                 // password correct, so that's what gets cached for offline fallback.
                 .copy(passwordHash = sha256(password))
             userAccountDao.upsert(account)
+            if (!account.isActive) {
+                // Cached first (above) so the offline login refuses it too.
+                firebaseAuth.signOut()
+                throw AccountException.AccountDisabled()
+            }
             setCurrentUserId(account.id)
             // Full pull so a fresh install/reinstall repopulates Room immediately
             // — awaited (not fire-and-forget like the write-side pushes) so the
@@ -134,6 +184,7 @@ class AccountRepository @Inject constructor(
     private suspend fun loginOffline(username: String, password: String): UserAccountEntity {
         val local = userAccountDao.getByUsername(username) ?: throw AccountException.NetworkAndNoLocalCache()
         if (local.passwordHash != sha256(password)) throw AccountException.WrongCredentials()
+        if (!local.isActive) throw AccountException.AccountDisabled()
         setCurrentUserId(local.id)
         return local
     }

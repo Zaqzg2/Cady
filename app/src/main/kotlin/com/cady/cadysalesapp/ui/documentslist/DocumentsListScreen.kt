@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.ui.home.RecentActivityItem
+import com.cady.cadysalesapp.ui.manager.RepFilterRow
 
 private data class DocRowDisplay(val title: String, val subtitle: String, val docType: String, val docId: String)
 
@@ -35,6 +36,9 @@ fun DocumentsListScreen(
 ) {
     val items by viewModel.filteredItems.collectAsState()
     val filter by viewModel.filter.collectAsState()
+    val isManager by viewModel.isManager.collectAsState()
+    val reps by viewModel.reps.collectAsState()
+    val selectedRepId by viewModel.selectedRepId.collectAsState()
 
     Scaffold(topBar = { TopAppBar(title = { Text("سجل المستندات") }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -54,18 +58,29 @@ fun DocumentsListScreen(
                 }
             }
 
+            if (isManager) {
+                RepFilterRow(
+                    reps = reps,
+                    selectedId = selectedRepId,
+                    onSelect = viewModel::selectRep,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 items(items) { item ->
                     val row = when (item) {
                         is RecentActivityItem.Invoice -> DocRowDisplay(
                             title = if (item.invoice.kind == InvoiceKind.SALE) "فاتورة بيع" else "فاتورة مرتجع",
-                            subtitle = "${item.invoice.docNumber} — ${item.invoice.customerName}",
+                            subtitle = "${item.invoice.docNumber} — ${item.invoice.customerName}" +
+                                if (isManager && !item.invoice.repName.isNullOrBlank()) " — ${item.invoice.repName}" else "",
                             docType = "invoice",
                             docId = item.invoice.id,
                         )
                         is RecentActivityItem.Receipt -> DocRowDisplay(
                             title = "سند قبض",
-                            subtitle = "${item.receipt.docNumber} — ${item.receipt.customerName}",
+                            subtitle = "${item.receipt.docNumber} — ${item.receipt.customerName}" +
+                                if (isManager && !item.receipt.repName.isNullOrBlank()) " — ${item.receipt.repName}" else "",
                             docType = "receipt",
                             docId = item.receipt.id,
                         )

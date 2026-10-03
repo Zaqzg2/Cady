@@ -33,6 +33,11 @@ import com.cady.cadysalesapp.ui.invoice.InvoiceScreen
 import com.cady.cadysalesapp.ui.lock.LockScreen
 import com.cady.cadysalesapp.ui.login.LoginScreen
 import com.cady.cadysalesapp.ui.manager.ManagerDashboardScreen
+import com.cady.cadysalesapp.ui.manager.ManagerExportScreen
+import com.cady.cadysalesapp.ui.manager.ManagerImportScreen
+import com.cady.cadysalesapp.ui.manager.ManagerLiveActivityScreen
+import com.cady.cadysalesapp.ui.manager.ManagerSyncHubScreen
+import com.cady.cadysalesapp.ui.manager.ManagerUsersScreen
 import com.cady.cadysalesapp.ui.products.ProductsScreen
 import com.cady.cadysalesapp.ui.receipt.ReceiptScreen
 import com.cady.cadysalesapp.ui.session.SessionViewModel
@@ -56,14 +61,16 @@ fun CadyNavHost(
     val isManager = currentUser?.role == UserRole.MANAGER
 
     // A sync file shared into Cady from another app: once the person is signed in (they are on
-    // Home), bring them to the sync screen, which asks before importing anything.
+    // Home), bring them to the screen that asks before importing anything — a manager's import
+    // screen (a rep's file, previewed first), or a rep's sync screen (the manager's update).
     val incomingViewModel: IncomingFileViewModel = hiltViewModel()
     val incomingFile by incomingViewModel.pending.collectAsState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    LaunchedEffect(incomingFile, currentRoute) {
+    LaunchedEffect(incomingFile, currentRoute, isManager) {
         if (incomingFile != null && currentRoute == CadyDestination.Home.route) {
-            navController.navigate(CadyDestination.Sync.route) { launchSingleTop = true }
+            val target = if (isManager) CadyDestination.ManagerImport.route else CadyDestination.Sync.route
+            navController.navigate(target) { launchSingleTop = true }
         }
     }
 
@@ -129,6 +136,7 @@ fun CadyNavHost(
         }
 
         composable(CadyDestination.Home.route) {
+            val user by sessionViewModel.currentUser.collectAsState()
             HomeScreen(
                 onNewSale = { navController.navigate(CadyDestination.Invoice.createRoute()) },
                 onNewReturn = { navController.navigate(CadyDestination.Invoice.createRoute()) },
@@ -137,6 +145,8 @@ fun CadyNavHost(
                 onSettingsClick = { navController.navigate(CadyDestination.SettingsHub.route) },
                 onViewAllDocuments = { navController.navigate(CadyDestination.DocumentsList.route) },
                 onDocumentClick = { type, id -> navController.navigate(CadyDestination.PdfPreview.createRoute(type, id)) },
+                isManager = user?.role == UserRole.MANAGER,
+                onManagerClick = { navController.navigate(CadyDestination.ManagerDashboard.route) },
                 bottomBar = bottomBar,
             )
         }
@@ -239,7 +249,10 @@ fun CadyNavHost(
                 onAppearanceClick = { navController.navigate(CadyDestination.SettingsAppearance.route) },
                 onPrivacyClick = { navController.navigate(CadyDestination.SettingsPrivacy.route) },
                 onDataClick = { navController.navigate(CadyDestination.SettingsData.route) },
-                onSyncClick = { navController.navigate(CadyDestination.Sync.route) },
+                onSyncClick = {
+                    val target = if (user?.role == UserRole.MANAGER) CadyDestination.ManagerSyncHub.route else CadyDestination.Sync.route
+                    navController.navigate(target)
+                },
                 onBackupClick = { navController.navigate(CadyDestination.BackupManagement.route) },
                 onManagerClick = { navController.navigate(CadyDestination.ManagerDashboard.route) },
                 onLogoutClick = { sessionViewModel.logout() },
@@ -273,6 +286,7 @@ fun CadyNavHost(
             ManagerDashboardScreen(
                 displayName = user?.displayName.orEmpty(),
                 onUsersClick = { navController.navigate(CadyDestination.ManagerUsers.route) },
+                onSyncHubClick = { navController.navigate(CadyDestination.ManagerSyncHub.route) },
                 onLiveActivityClick = { navController.navigate(CadyDestination.ManagerLiveActivity.createRoute()) },
                 onImportClick = { navController.navigate(CadyDestination.ManagerImport.route) },
                 onExportClick = { navController.navigate(CadyDestination.ManagerExport.route) },
@@ -280,14 +294,48 @@ fun CadyNavHost(
                 bottomBar = bottomBar,
             )
         }
-        // The rest of the manager's tools arrive in the next batch; until then each opens a
-        // titled placeholder with a back arrow, so the hub above never leads anywhere stuck.
-        composable(CadyDestination.ManagerUsers.route) { PlaceholderScreen("المندوبون", onBack = { navController.popBackStack() }) }
-        composable(CadyDestination.ManagerSyncHub.route) { PlaceholderScreen("مركز المزامنة", onBack = { navController.popBackStack() }) }
-        composable(CadyDestination.ManagerLiveActivity.route) { PlaceholderScreen("النشاط المباشر", onBack = { navController.popBackStack() }) }
-        composable(CadyDestination.ManagerImport.route) { PlaceholderScreen("استيراد من مندوب", onBack = { navController.popBackStack() }) }
-        composable(CadyDestination.ManagerExport.route) { PlaceholderScreen("إنشاء تحديث", onBack = { navController.popBackStack() }) }
-        composable(CadyDestination.ManagerSyncLog.route) { PlaceholderScreen("سجل المزامنة", onBack = { navController.popBackStack() }) }
+        composable(CadyDestination.ManagerUsers.route) {
+            ManagerUsersScreen(
+                onBack = { navController.popBackStack() },
+                onRepActivity = { repId -> navController.navigate(CadyDestination.ManagerLiveActivity.createRoute(repId)) },
+            )
+        }
+        composable(CadyDestination.ManagerSyncHub.route) {
+            ManagerSyncHubScreen(
+                onBack = { navController.popBackStack() },
+                onImport = { navController.navigate(CadyDestination.ManagerImport.route) },
+                onExport = { navController.navigate(CadyDestination.ManagerExport.route) },
+                onLiveActivity = { navController.navigate(CadyDestination.ManagerLiveActivity.createRoute()) },
+                onLog = { navController.navigate(CadyDestination.ManagerSyncLog.route) },
+                onUsers = { navController.navigate(CadyDestination.ManagerUsers.route) },
+                // This device's own Firebase sync (push/pull of the manager's data) is the rep-side screen.
+                onDeviceSync = { navController.navigate(CadyDestination.Sync.route) },
+            )
+        }
+        composable(
+            CadyDestination.ManagerLiveActivity.route,
+            arguments = listOf(navArgument("repId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) {
+            ManagerLiveActivityScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDocument = { type, id -> navController.navigate(CadyDestination.PdfPreview.createRoute(type, id)) },
+            )
+        }
+        composable(CadyDestination.ManagerImport.route) {
+            ManagerImportScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.ManagerExport.route) {
+            ManagerExportScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.ManagerSyncLog.route) {
+            // The same log screen as the rep's, under the manager's title and without the rep-only
+            // "waiting for the manager's confirmation" line.
+            com.cady.cadysalesapp.ui.sync.SyncOutboxInboxScreen(
+                onBack = { navController.popBackStack() },
+                title = "سجل المزامنة",
+                showAckStatus = false,
+            )
+        }
     }
 }
 

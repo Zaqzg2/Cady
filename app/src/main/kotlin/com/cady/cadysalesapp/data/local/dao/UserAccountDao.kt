@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import com.cady.cadysalesapp.data.local.entity.UserAccountEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UserAccountDao {
@@ -29,6 +30,10 @@ interface UserAccountDao {
      */
     @Query("SELECT EXISTS(SELECT 1 FROM user_accounts WHERE role = 'MANAGER')")
     suspend fun hasAnyManagerLocally(): Boolean
+
+    /** Every rep account known on this device — the manager's rep list (kept fresh by AccountRepository.refreshRepsFromCloud). */
+    @Query("SELECT * FROM user_accounts WHERE role = 'REP'")
+    fun observeReps(): Flow<List<UserAccountEntity>>
 
     @Upsert
     suspend fun upsert(account: UserAccountEntity)

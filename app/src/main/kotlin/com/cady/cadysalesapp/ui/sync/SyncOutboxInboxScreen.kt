@@ -34,6 +34,9 @@ import com.cady.cadysalesapp.ui.common.launchShare
 @Composable
 fun SyncOutboxInboxScreen(
     onBack: () -> Unit,
+    /** The manager's "سجل المزامنة" is this same screen under another title, without the rep's wait-for-confirmation line. */
+    title: String = "الصادر والوارد",
+    showAckStatus: Boolean = true,
     viewModel: SyncOutboxInboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -46,7 +49,7 @@ fun SyncOutboxInboxScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("الصادر والوارد") },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
@@ -90,6 +93,7 @@ fun SyncOutboxInboxScreen(
                         ActivityEntryCard(
                             entry = row.entry,
                             onResend = if (row.canResend) ({ viewModel.resend(row.entry) }) else null,
+                            showAckStatus = showAckStatus,
                         )
                     }
                     item {

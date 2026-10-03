@@ -179,7 +179,8 @@ class SyncFileService @Inject constructor(
         outcome
     }
 
-    private fun readRoot(uri: Uri): JSONObject {
+    /** Also used by the manager side (ManagerSyncService) — one envelope check for every file. */
+    internal fun readRoot(uri: Uri): JSONObject {
         val bytes = readLimited(uri)
         var text = String(bytes, Charsets.UTF_8)
         if (text.startsWith("\uFEFF")) text = text.substring(1)

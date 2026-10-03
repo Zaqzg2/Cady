@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.cady.cadysalesapp.ui.manager.RepFilterRow
 
 @Composable
 fun CustomersScreen(
@@ -43,6 +44,10 @@ fun CustomersScreen(
     viewModel: CustomersViewModel = hiltViewModel(),
 ) {
     val customers by viewModel.customers.collectAsState()
+    val isManager by viewModel.isManager.collectAsState()
+    val reps by viewModel.reps.collectAsState()
+    val selectedRepId by viewModel.selectedRepId.collectAsState()
+    val ownerNames by viewModel.ownerNames.collectAsState()
     var searchText by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -66,6 +71,14 @@ fun CustomersScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             )
+            if (isManager) {
+                RepFilterRow(
+                    reps = reps,
+                    selectedId = selectedRepId,
+                    onSelect = viewModel::selectRep,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
 
             if (customers.isEmpty()) {
                 Text(
@@ -91,6 +104,11 @@ fun CustomersScreen(
                                 Text(customer.name, style = MaterialTheme.typography.titleMedium)
                                 customer.phone?.let {
                                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (isManager) {
+                                    ownerNames[customer.ownerUid]?.let {
+                                        Text("المندوب: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
                             }
                             Icon(

@@ -26,6 +26,11 @@ class CustomerRepository @Inject constructor(
 ) {
     fun observeAll(ownerUid: String): Flow<List<CustomerEntity>> = customerDao.observeAll(ownerUid)
 
+    /** Manager only: every rep's customers. */
+    fun observeEveryone(): Flow<List<CustomerEntity>> = customerDao.observeEveryone()
+
+    fun searchEveryone(query: String): Flow<List<CustomerEntity>> = customerDao.searchEveryone(query)
+
     fun observeById(id: String): Flow<CustomerEntity?> = customerDao.observeById(id)
 
     fun search(ownerUid: String, query: String): Flow<List<CustomerEntity>> =

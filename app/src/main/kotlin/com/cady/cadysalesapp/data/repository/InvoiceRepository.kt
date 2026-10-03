@@ -26,6 +26,9 @@ class InvoiceRepository @Inject constructor(
 ) {
     fun observeAll(ownerUid: String): Flow<List<InvoiceEntity>> = invoiceDao.observeAll(ownerUid)
 
+    /** Manager only: every rep's invoices. */
+    fun observeEveryone(): Flow<List<InvoiceEntity>> = invoiceDao.observeEveryone()
+
     fun observeForCustomer(customerId: String): Flow<List<InvoiceEntity>> = invoiceDao.observeForCustomer(customerId)
 
     fun observeItems(invoiceId: String): Flow<List<InvoiceItemEntity>> = invoiceItemDao.observeForInvoice(invoiceId)

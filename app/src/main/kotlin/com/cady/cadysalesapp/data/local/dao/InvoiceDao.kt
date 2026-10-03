@@ -14,6 +14,10 @@ interface InvoiceDao {
     @Query("SELECT * FROM invoices WHERE ownerUid = :ownerUid ORDER BY date DESC")
     fun observeAll(ownerUid: String): Flow<List<InvoiceEntity>>
 
+    /** The manager's view: every rep's invoices together. */
+    @Query("SELECT * FROM invoices ORDER BY date DESC")
+    fun observeEveryone(): Flow<List<InvoiceEntity>>
+
     @Query("SELECT * FROM invoices WHERE customerId = :customerId ORDER BY date DESC")
     fun observeForCustomer(customerId: String): Flow<List<InvoiceEntity>>
 

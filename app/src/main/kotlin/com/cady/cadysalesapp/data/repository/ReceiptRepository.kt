@@ -19,6 +19,9 @@ class ReceiptRepository @Inject constructor(
 ) {
     fun observeAll(ownerUid: String): Flow<List<ReceiptEntity>> = receiptDao.observeAll(ownerUid)
 
+    /** Manager only: every rep's receipts. */
+    fun observeEveryone(): Flow<List<ReceiptEntity>> = receiptDao.observeEveryone()
+
     fun observeForCustomer(customerId: String): Flow<List<ReceiptEntity>> = receiptDao.observeForCustomer(customerId)
 
     suspend fun getById(id: String): ReceiptEntity? = receiptDao.getById(id)

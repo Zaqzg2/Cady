@@ -25,6 +25,17 @@ interface CustomerDao {
     )
     fun search(ownerUid: String, query: String): Flow<List<CustomerEntity>>
 
+    /** The manager's view: every rep's customers together (filtering by rep happens in the screen). */
+    @Query("SELECT * FROM customers ORDER BY isPinned DESC, name COLLATE NOCASE ASC")
+    fun observeEveryone(): Flow<List<CustomerEntity>>
+
+    @Query(
+        """SELECT * FROM customers
+           WHERE (name LIKE '%' || :query || '%' OR phone LIKE '%' || :query || '%')
+           ORDER BY isPinned DESC, name COLLATE NOCASE ASC"""
+    )
+    fun searchEveryone(query: String): Flow<List<CustomerEntity>>
+
     @Query("SELECT * FROM customers WHERE syncStatus = :status AND ownerUid = :ownerUid")
     suspend fun getByStatus(ownerUid: String, status: SyncStatus = SyncStatus.PENDING): List<CustomerEntity>
 

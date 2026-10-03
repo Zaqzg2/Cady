@@ -13,6 +13,10 @@ interface ReceiptDao {
     @Query("SELECT * FROM receipts WHERE ownerUid = :ownerUid ORDER BY date DESC")
     fun observeAll(ownerUid: String): Flow<List<ReceiptEntity>>
 
+    /** The manager's view: every rep's receipts together. */
+    @Query("SELECT * FROM receipts ORDER BY date DESC")
+    fun observeEveryone(): Flow<List<ReceiptEntity>>
+
     @Query("SELECT * FROM receipts WHERE customerId = :customerId ORDER BY date DESC")
     fun observeForCustomer(customerId: String): Flow<List<ReceiptEntity>>
 

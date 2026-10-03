@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cady.cadysalesapp.ui.home.RecentActivityItem
+import com.cady.cadysalesapp.ui.manager.ManagerHomeStrip
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -56,6 +57,9 @@ fun HomeScreen(
     onSettingsClick: () -> Unit,
     onViewAllDocuments: () -> Unit,
     onDocumentClick: (docType: String, docId: String) -> Unit = { _, _ -> },
+    /** Only a manager account gets the "لوحة المدير" strip at the top. */
+    isManager: Boolean = false,
+    onManagerClick: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -81,6 +85,8 @@ fun HomeScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            if (isManager) ManagerHomeStrip(onClick = onManagerClick)
+
             // A plain 2x2 layout instead of a LazyVerticalGrid: there are always
             // exactly 4 cards, so "lazy" bought nothing but a hardcoded container
             // height that was too short for 2 rows of aspectRatio(1.6f) cards plus
