@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">كادي</string>
+
+    <!-- App shortcuts (long-press the launcher icon) -->
+    <string name="shortcut_invoice_short">فاتورة بيع</string>
+    <string name="shortcut_invoice_long">فاتورة بيع جديدة</string>
+    <string name="shortcut_receipt_short">سند قبض</string>
+    <string name="shortcut_receipt_long">سند قبض جديد</string>
+
+    <!-- Home-screen widget -->
+    <string name="widget_label">كادي — إجراءات سريعة</string>
+    <string name="widget_description">ابدأ فاتورة بيع أو سند قبض أو بيعًا لعميل نقدي بضغطة واحدة</string>
+    <string name="widget_new_invoice">فاتورة بيع</string>
+    <string name="widget_new_receipt">سند قبض</string>
+    <string name="widget_cash_sale">عميل نقدي</string>
+</resources>

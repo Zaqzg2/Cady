@@ -1,0 +1,6 @@
+<resources>
+    <!-- Placeholder brand red until the real Kady logo asset is dropped in and
+         run through Image Asset Studio (mirrors flutter_launcher_icons' role
+         in the Flutter project). -->
+    <color name="ic_launcher_background">#C62828</color>
+</resources>

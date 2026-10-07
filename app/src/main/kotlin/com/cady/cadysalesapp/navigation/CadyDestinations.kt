@@ -1,0 +1,67 @@
+package com.cady.cadysalesapp.navigation
+
+/**
+ * Plain string routes (not the newer @Serializable type-safe routes) — deliberately,
+ * to avoid pulling in the kotlinx-serialization plugin/dependency just for this.
+ * Worth revisiting once the screen count below actually exists and the win from
+ * type safety outweighs the extra moving part.
+ *
+ * One route per screen in the review doc's inventory (section 1), grouped the same way.
+ */
+sealed class CadyDestination(val route: String) {
+
+    // Auth / onboarding
+    data object SetupManager : CadyDestination("setup_manager")
+    data object Login : CadyDestination("login")
+    data object Lock : CadyDestination("lock")
+
+    // Rep core
+    data object Home : CadyDestination("home")
+    data object Customers : CadyDestination("customers")
+    data object CustomerDetail : CadyDestination("customers/{customerId}") {
+        fun createRoute(customerId: String) = "customers/$customerId"
+    }
+    data object Products : CadyDestination("products")
+    data object Reports : CadyDestination("reports")
+    data object Invoice : CadyDestination("invoice?invoiceId={invoiceId}&customerId={customerId}&kind={kind}&cash={cash}") {
+        /** [kind] is "return" to open a return invoice; anything else (or none) opens a sale.
+            [cash] starts a cash sale with the walk-in "عميل نقدي" already chosen. */
+        fun createRoute(invoiceId: String? = null, customerId: String? = null, kind: String? = null, cash: Boolean = false) =
+            "invoice?invoiceId=${invoiceId.orEmpty()}&customerId=${customerId.orEmpty()}&kind=${kind.orEmpty()}&cash=${if (cash) "1" else ""}"
+    }
+    data object Receipt : CadyDestination("receipt?receiptId={receiptId}&customerId={customerId}") {
+        fun createRoute(receiptId: String? = null, customerId: String? = null) =
+            "receipt?receiptId=${receiptId.orEmpty()}&customerId=${customerId.orEmpty()}"
+    }
+    data object DocumentsList : CadyDestination("documents")
+    data object PdfPreview : CadyDestination("pdf_preview/{docType}/{docId}") {
+        fun createRoute(docType: String, docId: String) = "pdf_preview/$docType/$docId"
+    }
+
+    // Settings
+    data object SettingsHub : CadyDestination("settings")
+    data object SettingsCompany : CadyDestination("settings/company")
+    data object SettingsPrinting : CadyDestination("settings/printing")
+    data object SettingsAppearance : CadyDestination("settings/appearance")
+    data object SettingsPrivacy : CadyDestination("settings/privacy")
+    data object SettingsData : CadyDestination("settings/data")
+
+    // Sync / backup (rep side)
+    data object Sync : CadyDestination("sync")
+    data object SyncPendingPreview : CadyDestination("sync/pending_preview")
+    data object SyncOutboxInbox : CadyDestination("sync/outbox_inbox")
+    data object BackupManagement : CadyDestination("backup")
+
+    // Manager — screens inside the same app and the same navigation graph as the rep's;
+    // they are only reachable (and only shown) when the signed-in account is a manager.
+    data object ManagerDashboard : CadyDestination("manager/dashboard")
+    data object ManagerUsers : CadyDestination("manager/users")
+    data object ManagerSyncHub : CadyDestination("manager/sync_hub")
+    data object ManagerLiveActivity : CadyDestination("manager/live_activity?repId={repId}") {
+        fun createRoute(repId: String? = null) = "manager/live_activity?repId=${repId.orEmpty()}"
+    }
+    data object ManagerOffers : CadyDestination("manager/offers")
+    data object ManagerImport : CadyDestination("manager/import")
+    data object ManagerExport : CadyDestination("manager/export")
+    data object ManagerSyncLog : CadyDestination("manager/sync_log")
+}

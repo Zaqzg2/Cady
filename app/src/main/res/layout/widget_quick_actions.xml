@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget: three one-tap starts. Only classes RemoteViews can inflate are used. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <LinearLayout
+        android:id="@+id/widget_new_invoice"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginEnd="4dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button_background"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="4dp">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:contentDescription="@string/widget_new_invoice"
+            android:src="@drawable/ic_shortcut_invoice" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/widget_new_invoice"
+            android:textColor="@color/widget_text"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_new_receipt"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button_background"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="4dp">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:contentDescription="@string/widget_new_receipt"
+            android:src="@drawable/ic_shortcut_receipt" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/widget_new_receipt"
+            android:textColor="@color/widget_text"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_cash_sale"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="4dp"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button_background"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="4dp">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:contentDescription="@string/widget_cash_sale"
+            android:src="@drawable/ic_shortcut_cash" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/widget_cash_sale"
+            android:textColor="@color/widget_text"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

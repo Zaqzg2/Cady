@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: start a sales invoice or a receipt voucher without opening the app first.
+     MainActivity turns the intent action into the right screen once someone is signed in. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_invoice"
+        android:shortcutId="new_invoice"
+        android:shortcutLongLabel="@string/shortcut_invoice_long"
+        android:shortcutShortLabel="@string/shortcut_invoice_short">
+        <intent
+            android:action="com.cady.cadysalesapp.action.NEW_INVOICE"
+            android:targetClass="com.cady.cadysalesapp.MainActivity"
+            android:targetPackage="com.cady.cadysalesapp" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_receipt"
+        android:shortcutId="new_receipt"
+        android:shortcutLongLabel="@string/shortcut_receipt_long"
+        android:shortcutShortLabel="@string/shortcut_receipt_short">
+        <intent
+            android:action="com.cady.cadysalesapp.action.NEW_RECEIPT"
+            android:targetClass="com.cady.cadysalesapp.MainActivity"
+            android:targetPackage="com.cady.cadysalesapp" />
+    </shortcut>
+</shortcuts>
