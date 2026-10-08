@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The page colour of the Phase 9 theme (Color.kt: LightColorScheme.background). The splash starts
+         from it so the first Compose frame does not flash a different shade. A colour literal cannot be
+         written inline in a layer-list item's android:drawable — it has to be a resource reference. -->
+    <color name="splash_page">#FFF8F5F4</color>
+</resources>

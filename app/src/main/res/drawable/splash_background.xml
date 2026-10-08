@@ -7,7 +7,7 @@
      build) is still there, but it no longer looks like the app is stuck or
      broken while it happens. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="#FFF8F5F4" />
+    <item android:drawable="@color/splash_page" />
     <item
         android:width="96dp"
         android:height="96dp"

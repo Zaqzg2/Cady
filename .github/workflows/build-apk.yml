@@ -60,12 +60,26 @@ jobs:
           name: optimized-build-log
           path: optimized-output.log
 
+      # The errors, right on the run's summary page — no need to open the raw log to find them.
+      - name: Show build errors in the run summary
+        if: steps.build.outcome == 'failure'
+        run: |
+          {
+            echo '### Build errors'
+            echo '```'
+            grep -E '^e: |error:|What went wrong|Execution failed|Unresolved reference' -A2 build-output.log | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Collect failure logs
         if: steps.build.outcome == 'failure'
         run: |
           mkdir -p ci-failure-logs
           cp build-output.log ci-failure-logs/ 2>/dev/null || true
-          [ -d app/build/reports ] && cp -r app/build/reports ci-failure-logs/app-build-reports
+          grep -E '^e: |error:|What went wrong|Execution failed' -A2 build-output.log > ci-failure-logs/errors-only.txt 2>/dev/null || true
+          # `[ -d ... ] && cp ...` as the last line made this step itself exit 1 whenever the build died
+          # before Gradle wrote any report (e.g. a resource error), which skipped the log upload below.
+          if [ -d app/build/reports ]; then cp -r app/build/reports ci-failure-logs/app-build-reports; fi
 
       - name: Upload failure logs
         if: steps.build.outcome == 'failure'

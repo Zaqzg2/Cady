@@ -265,6 +265,11 @@ private fun RepListItem(
                         ?: "نشاط اليوم: غير متاح (تعذّر الوصول للسحابة)",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                // The two actions stay visible as buttons (as before) — the gestures are the shortcut, not the only way.
+                Row {
+                    TextButton(onClick = onEdit) { Text("تعديل") }
+                    TextButton(onClick = onActivity) { Text("النشاط المباشر") }
+                }
             }
         }
     }

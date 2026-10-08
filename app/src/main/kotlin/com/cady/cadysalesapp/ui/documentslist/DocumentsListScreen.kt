@@ -213,11 +213,11 @@ fun DocumentsListScreen(
 
             if (pinned.isNotEmpty()) {
                 item(key = "h-pinned") { GroupHeader("المثبّتة", Icons.Filled.PushPin) }
-                items(pinned, key = { it.selectionKey() }) { item -> renderRow(item, true) }
+                items(pinned, key = { it.selectionKey() }) { item -> this.renderRow(item, true) }
             }
             byDay.forEach { (day, dayItems) ->
                 item(key = "h-$day") { GroupHeader(dayHeaderLabel(day, today)) }
-                items(dayItems, key = { it.selectionKey() }) { item -> renderRow(item, false) }
+                items(dayItems, key = { it.selectionKey() }) { item -> this.renderRow(item, false) }
             }
         }
     }
