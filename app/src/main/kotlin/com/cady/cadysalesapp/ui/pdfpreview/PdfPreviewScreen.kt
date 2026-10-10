@@ -1,5 +1,6 @@
 package com.cady.cadysalesapp.ui.pdfpreview
 
+import com.cady.cadysalesapp.data.files.DownloadsStorage
 import com.cady.cadysalesapp.ui.common.CadyAppBar
 import android.content.Context
 import android.content.Intent
@@ -27,8 +28,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -81,6 +82,7 @@ fun PdfPreviewScreen(
     val state by viewModel.state.collectAsState()
     val thermalPrintState by viewModel.thermalPrintState.collectAsState()
     val downloadState by viewModel.downloadState.collectAsState()
+    val savedTo by viewModel.savedTo.collectAsState()
     val context = LocalContext.current
     val printers by viewModel.printers.collectAsState()
     val defaultPrinterMac by viewModel.defaultPrinterMac.collectAsState()
@@ -128,7 +130,8 @@ fun PdfPreviewScreen(
                         IconButton(onClick = {
                             if (printers.size > 1) printerMenuOpen = true else startThermalPrint(null)
                         }) {
-                            Icon(Icons.Filled.Bluetooth, contentDescription = "طباعة حرارية")
+                            // A printer, not the Bluetooth logo: the Bluetooth mark reads as "share over Bluetooth".
+                            Icon(Icons.Filled.Print, contentDescription = "طباعة على الطابعة الحرارية")
                         }
                         DropdownMenu(expanded = printerMenuOpen, onDismissRequest = { printerMenuOpen = false }) {
                             printers.forEach { printer ->
@@ -145,7 +148,8 @@ fun PdfPreviewScreen(
                         val file = (state as? PdfPreviewState.Ready)?.file ?: return@IconButton
                         printPdf(context, file)
                     }) {
-                        Icon(Icons.Filled.Print, contentDescription = "طباعة")
+                        // The system print sheet (any printer, or "save as PDF").
+                        Icon(Icons.Filled.PictureAsPdf, contentDescription = "طباعة عادية أو حفظ PDF")
                     }
                     IconButton(onClick = {
                         val file = (state as? PdfPreviewState.Ready)?.file ?: return@IconButton
@@ -161,9 +165,10 @@ fun PdfPreviewScreen(
                     }
                     IconButton(onClick = {
                         val file = (state as? PdfPreviewState.Ready)?.file ?: return@IconButton
-                        downloadLauncher.launch(file.name)
+                        // Android 10+: straight into Download/Cady. Older versions keep the "save as…" screen.
+                        if (DownloadsStorage.isSupported) viewModel.saveToDownloads() else downloadLauncher.launch(file.name)
                     }) {
-                        Icon(Icons.Filled.Download, contentDescription = "تحميل")
+                        Icon(Icons.Filled.Download, contentDescription = "تحميل إلى مجلد Cady في التنزيلات")
                     }
                 },
             )
@@ -228,7 +233,7 @@ fun PdfPreviewScreen(
                 AlertDialog(
                     onDismissRequest = viewModel::dismissDownloadResult,
                     title = { Text("تم الحفظ ✓") },
-                    text = {},
+                    text = { Text(savedTo ?: "حُفظ الملف في المكان الذي اخترته.") },
                     confirmButton = { TextButton(onClick = viewModel::dismissDownloadResult) { Text("حسنًا") } },
                 )
             }

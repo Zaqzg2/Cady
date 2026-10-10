@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -218,6 +218,10 @@ fun SwipeActionRow(
     }
 
     Box(modifier = modifier.fillMaxWidth().clip(shape)) {
+        // NB: the foreground below is moved with absoluteOffset on purpose. Modifier.offset { } is
+        // layout-direction aware — in this always-RTL app it mirrors the x, so the card would slide
+        // AGAINST the finger and uncover the side that has no buttons. Drag deltas are absolute
+        // (positive = finger moving right), so the translation must be absolute too.
         Box(modifier = Modifier.matchParentSize()) {
             if (showLeft && leftActions.isNotEmpty()) {
                 Row(
@@ -243,7 +247,7 @@ fun SwipeActionRow(
             }
         }
         Box(
-            modifier = dragModifier.offset { IntOffset(offset.roundToInt(), 0) },
+            modifier = dragModifier.absoluteOffset { IntOffset(offset.roundToInt(), 0) },
         ) {
             content()
             if (isOpen) {

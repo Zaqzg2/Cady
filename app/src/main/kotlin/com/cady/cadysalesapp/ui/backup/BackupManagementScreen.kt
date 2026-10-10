@@ -1,5 +1,6 @@
 package com.cady.cadysalesapp.ui.backup
 
+import com.cady.cadysalesapp.data.files.DownloadsStorage
 import com.cady.cadysalesapp.ui.common.CadyCard
 import com.cady.cadysalesapp.ui.common.CadyAppBar
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -209,8 +210,13 @@ fun BackupManagementScreen(
                         info = info,
                         onShare = { viewModel.share(info) },
                         onSave = {
-                            saveTargetName = info.name
-                            saveLauncher.launch(info.name)
+                            // Android 10+: straight into Download/Cady. Older versions keep the "save as…" screen.
+                            if (DownloadsStorage.isSupported) {
+                                viewModel.saveToDownloads(info.name)
+                            } else {
+                                saveTargetName = info.name
+                                saveLauncher.launch(info.name)
+                            }
                         },
                         onRestore = { viewModel.requestRestore(info) },
                         onDelete = { viewModel.requestDelete(info) },
@@ -373,7 +379,7 @@ private fun BackupCard(
             )
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 IconButton(onClick = onShare) { Icon(Icons.Filled.Share, contentDescription = "مشاركة") }
-                IconButton(onClick = onSave) { Icon(Icons.Filled.SaveAlt, contentDescription = "حفظ خارج التطبيق") }
+                IconButton(onClick = onSave) { Icon(Icons.Filled.SaveAlt, contentDescription = "حفظ في مجلد Cady في التنزيلات") }
                 IconButton(onClick = onRestore, enabled = info.isValid) {
                     Icon(Icons.Filled.Restore, contentDescription = "استرجاع")
                 }

@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cady.cadysalesapp.data.files.DownloadsStorage
+import com.cady.cadysalesapp.data.files.safeFileToken
+import com.cady.cadysalesapp.data.local.entity.InvoiceKind
 import com.cady.cadysalesapp.data.pdf.PdfService
 import com.cady.cadysalesapp.data.printing.SavedPrinter
 import com.cady.cadysalesapp.data.printing.ThermalPrintService
@@ -16,6 +19,7 @@ import com.cady.cadysalesapp.data.repository.ReceiptRepository
 import com.cady.cadysalesapp.ui.common.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -169,7 +173,53 @@ class PdfPreviewViewModel @Inject constructor(
         }
     }
 
+    private val _savedTo = MutableStateFlow<String?>(null)
+
+    /** What the success message says when the file went straight to Download/Cady (null: the person picked the place). */
+    val savedTo: StateFlow<String?> = _savedTo
+
+    /**
+     * Android 10+: saves the document into the one Cady folder inside Downloads — no picker, no permission.
+     * (Older Androids keep the "choose where to save" screen; see [downloadTo].)
+     */
+    fun saveToDownloads() {
+        val file = (_state.value as? PdfPreviewState.Ready)?.file ?: return
+        _savedTo.value = null
+        _downloadState.value = UiState.Loading
+        viewModelScope.launch {
+            try {
+                val name = downloadFileName(file)
+                DownloadsStorage.saveFile(context, file, name, "application/pdf")
+                _savedTo.value = "حُفظ الملف «$name» في ${DownloadsStorage.FOLDER_LABEL}."
+                _downloadState.value = UiState.Success
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _downloadState.value = UiState.Error(e.message ?: "تعذّر الحفظ")
+            }
+        }
+    }
+
+    /** "Cady_invoice_1024.pdf" instead of the internal "invoice-<long id>.pdf". */
+    private suspend fun downloadFileName(file: File): String {
+        val named: Pair<String, String>? = try {
+            when (docType) {
+                "invoice" -> invoiceRepository.getById(docId)?.let {
+                    (if (it.kind == InvoiceKind.SALE) "invoice" else "return") to it.docNumber
+                }
+                "receipt" -> receiptRepository.getById(docId)?.let { "receipt" to it.docNumber }
+                else -> null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        return if (named == null) file.name else "Cady_${named.first}_${safeFileToken(named.second, "doc")}.pdf"
+    }
+
     fun dismissDownloadResult() {
         _downloadState.value = UiState.Idle
+        _savedTo.value = null
     }
 }

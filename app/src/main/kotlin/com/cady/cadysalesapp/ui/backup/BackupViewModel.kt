@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cady.cadysalesapp.data.files.DownloadsStorage
 import com.cady.cadysalesapp.data.backup.AutoBackupFrequency
 import com.cady.cadysalesapp.data.backup.AutoBackupScheduler
 import com.cady.cadysalesapp.data.backup.BackupException
@@ -177,6 +178,26 @@ class BackupViewModel @Inject constructor(
                 if (!file.isFile) throw BackupException("النسخة لم تعد موجودة")
                 backupService.copyTo(file, destination)
                 local.update { it.copy(busy = null, dialog = BackupDialog.Message("تم الحفظ", "حُفظت النسخة في المكان الذي اخترته.")) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("تعذّر حفظ النسخة", e)
+            }
+        }
+    }
+
+    /** Android 10+: straight into Download/Cady — no picker, no permission. */
+    fun saveToDownloads(fileName: String) {
+        viewModelScope.launch {
+            local.update { it.copy(busy = "جارٍ حفظ النسخة…") }
+            try {
+                // Only names from our own folder: never a path the UI (or a stale state) made up.
+                val file = File(backupService.backupDir, File(fileName).name)
+                if (!file.isFile) throw BackupException("النسخة لم تعد موجودة")
+                DownloadsStorage.saveFile(appContext, file, file.name, "application/zip")
+                local.update {
+                    it.copy(busy = null, dialog = BackupDialog.Message("تم الحفظ", "حُفظت النسخة في ${DownloadsStorage.FOLDER_LABEL}."))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
