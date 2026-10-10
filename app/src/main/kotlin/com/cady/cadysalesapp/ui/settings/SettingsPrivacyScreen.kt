@@ -54,6 +54,7 @@ fun SettingsPrivacyScreen(onBack: () -> Unit = {}, viewModel: SettingsPrivacyVie
     val activity = context.findFragmentActivity()
     var showSetPinDialog by remember { mutableStateOf(false) }
     var biometricError by remember { mutableStateOf<String?>(null) }
+    var testResult by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     // Re-check the sensor whenever the person comes back to this screen — typically
     // from the system settings, right after enrolling a fingerprint there.
@@ -69,6 +70,10 @@ fun SettingsPrivacyScreen(onBack: () -> Unit = {}, viewModel: SettingsPrivacyVie
     val availability = remember(activity, refreshTick) {
         activity?.let(viewModel::biometricAvailability) ?: BiometricAvailability.UNAVAILABLE
     }
+    val statusCode = remember(activity, refreshTick) { activity?.let(viewModel::biometricStatusCode) }
+    // Only a DEFINITE "no" (no sensor / nothing enrolled) blocks the switch. "Unavailable" and "busy" are what
+    // some phones answer even when the sheet works, so the switch stays usable and a real attempt decides.
+    val definiteNo = availability == BiometricAvailability.NO_HARDWARE || availability == BiometricAvailability.NONE_ENROLLED
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -116,7 +121,7 @@ fun SettingsPrivacyScreen(onBack: () -> Unit = {}, viewModel: SettingsPrivacyVie
                         Text("فتح بالبصمة أو الوجه", style = MaterialTheme.typography.titleMedium)
                         availability.message?.let { reason ->
                             Text(
-                                reason,
+                                reason + if (statusCode != null) " (رمز $statusCode)" else "",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -126,7 +131,7 @@ fun SettingsPrivacyScreen(onBack: () -> Unit = {}, viewModel: SettingsPrivacyVie
                         checked = state.isBiometricEnabled,
                         // An already-enabled switch must stay switchable to "off" even if the
                         // sensor went away since.
-                        enabled = availability == BiometricAvailability.AVAILABLE || state.isBiometricEnabled,
+                        enabled = !definiteNo || state.isBiometricEnabled,
                         onCheckedChange = { wantOn ->
                             if (wantOn) {
                                 biometricError = null
@@ -147,6 +152,24 @@ fun SettingsPrivacyScreen(onBack: () -> Unit = {}, viewModel: SettingsPrivacyVie
                         "تعذّر تفعيل البصمة: $message",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                // The quickest way to find out why it does not work: the same sheet, and the exact outcome.
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        testResult = null
+                        activity?.let { viewModel.testBiometric(it) { message, ok -> testResult = message to ok } }
+                    },
+                    enabled = !definiteNo,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("تجربة البصمة الآن") }
+                testResult?.let { (message, ok) ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }

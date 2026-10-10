@@ -10,6 +10,7 @@ import com.cady.cadysalesapp.data.repository.BiometricResult
 import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -48,15 +49,43 @@ class SettingsPrivacyViewModel @Inject constructor(
      */
     fun enableBiometric(activity: FragmentActivity, onFailure: (String) -> Unit) {
         viewModelScope.launch {
-            val result = biometricAuthHelper.authenticate(
+            var result: BiometricResult = biometricAuthHelper.authenticate(
                 activity,
                 title = "تفعيل البصمة",
                 subtitle = "ضع إصبعك على المستشعر للتأكد من أنها تعمل",
             )
+            if (result is BiometricResult.Interrupted) {
+                // The system cancelled the sheet before it could show; one more try, then report it.
+                delay(700)
+                result = biometricAuthHelper.authenticate(
+                    activity,
+                    title = "تفعيل البصمة",
+                    subtitle = "ضع إصبعك على المستشعر للتأكد من أنها تعمل",
+                )
+            }
             when (result) {
                 is BiometricResult.Success -> authRepository.setBiometricEnabled(true)
                 is BiometricResult.Cancelled -> {}
+                is BiometricResult.Interrupted -> onFailure(result.message)
                 is BiometricResult.Error -> onFailure(result.message)
+            }
+        }
+    }
+
+    /** The raw BiometricManager answer, shown next to "not available" so a report can name the exact cause. */
+    fun biometricStatusCode(activity: FragmentActivity): Int = biometricAuthHelper.rawStatus(activity)
+
+    /**
+     * "تجربة البصمة الآن": the very same sheet the lock screen uses, with the outcome spelled out either way —
+     * success, or the exact reason and system error code.
+     */
+    fun testBiometric(activity: FragmentActivity, onResult: (message: String, ok: Boolean) -> Unit) {
+        viewModelScope.launch {
+            when (val result = biometricAuthHelper.authenticate(activity, "تجربة البصمة", "ضع إصبعك على المستشعر")) {
+                is BiometricResult.Success -> onResult("نجحت التجربة ✓ — البصمة تعمل", true)
+                is BiometricResult.Cancelled -> onResult("أُلغيت التجربة", false)
+                is BiometricResult.Interrupted -> onResult(result.message, false)
+                is BiometricResult.Error -> onResult(result.message, false)
             }
         }
     }

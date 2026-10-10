@@ -77,11 +77,19 @@ fun LockScreen(
     // a manual tap — this is the actual point of enabling it in settings.
     LaunchedEffect(biometricEnabled, activity) {
         if (!biometricEnabled || activity == null) return@LaunchedEffect
-        // The system sheet only appears for an activity that is fully in front
-        // (RESUMED); asked any earlier — right as the app returns from the
-        // background — it is silently cancelled and the person sees nothing.
-        while (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) delay(50)
-        delay(250)
+        // The system sheet only appears for an activity that is fully in front (RESUMED) AND whose window
+        // has input focus; asked any earlier — right as the app returns from the background, or on a slow
+        // cold start — it is cancelled by the system and the person sees nothing. Wait for both (bounded,
+        // so a window that never gets focus cannot hang this forever), then a short settle.
+        var waited = 0
+        while (
+            (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+                !activity.window.decorView.hasWindowFocus()) && waited < 5_000
+        ) {
+            delay(50)
+            waited += 50
+        }
+        delay(400)
         viewModel.tryBiometric(activity, onUnlocked)
     }
 

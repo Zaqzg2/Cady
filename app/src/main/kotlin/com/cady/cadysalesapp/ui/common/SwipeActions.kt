@@ -246,8 +246,14 @@ fun SwipeActionRow(
                 }
             }
         }
+        // Order matters: the offset comes FIRST and the drag detector after it, so the detector moves
+        // together with the card. With the detector outside the offset (as it was) its touch area stayed
+        // over the whole row — including the strip uncovered by the swipe — and, being the top sibling,
+        // it swallowed every tap meant for the buttons behind it.
         Box(
-            modifier = dragModifier.absoluteOffset { IntOffset(offset.roundToInt(), 0) },
+            modifier = Modifier
+                .absoluteOffset { IntOffset(offset.roundToInt(), 0) }
+                .then(dragModifier),
         ) {
             content()
             if (isOpen) {
