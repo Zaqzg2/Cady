@@ -8,6 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -29,6 +30,18 @@ class SettingsCompanyViewModel @Inject constructor(
 
     val settings: StateFlow<CompanySettings> = repository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CompanySettings())
+
+    /**
+     * The settings as they were REALLY read from storage — null until then. [settings] above starts with an empty
+     * placeholder, and the screen used to fill its text fields from the very first value it saw: always the
+     * placeholder, so every re-entry showed empty fields (the saved data was there, just never shown).
+     */
+    private val _initialSettings = MutableStateFlow<CompanySettings?>(null)
+    val initialSettings: StateFlow<CompanySettings?> = _initialSettings
+
+    init {
+        viewModelScope.launch { _initialSettings.value = repository.settings.first() }
+    }
 
     private val _saveState = MutableStateFlow<SettingsSaveState>(SettingsSaveState.Idle)
     val saveState: StateFlow<SettingsSaveState> = _saveState

@@ -37,9 +37,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.cady.cadysalesapp.ui.common.findFragmentActivity
 import kotlinx.coroutines.delay
 
@@ -73,9 +76,28 @@ fun LockScreen(
     // previous one must not greet the next.
     LaunchedEffect(Unit) { viewModel.clearError() }
 
+    // Every time the app comes to the front while the lock is up (not only the first time the screen
+    // appears) the fingerprint is offered again; going to the background closes any sheet that is open.
+    var resumeTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(activity) {
+        val lifecycle = activity?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> resumeTick++
+                Lifecycle.Event.ON_STOP -> viewModel.resetBiometric()
+                else -> Unit
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose {
+            lifecycle?.removeObserver(observer)
+            viewModel.resetBiometric()
+        }
+    }
+
     // Offer biometric immediately on arriving at the lock screen, not only on
     // a manual tap — this is the actual point of enabling it in settings.
-    LaunchedEffect(biometricEnabled, activity) {
+    LaunchedEffect(biometricEnabled, activity, resumeTick) {
         if (!biometricEnabled || activity == null) return@LaunchedEffect
         // The system sheet only appears for an activity that is fully in front (RESUMED) AND whose window
         // has input focus; asked any earlier — right as the app returns from the background, or on a slow
@@ -90,7 +112,7 @@ fun LockScreen(
             waited += 50
         }
         delay(400)
-        viewModel.tryBiometric(activity, onUnlocked)
+        viewModel.tryBiometric(activity, automatic = true, onUnlocked = onUnlocked)
     }
 
     Column(
@@ -150,7 +172,7 @@ fun LockScreen(
 
         if (biometricEnabled) {
             Spacer(Modifier.height(16.dp))
-            IconButton(onClick = { activity?.let { viewModel.tryBiometric(it, onUnlocked) } }) {
+            IconButton(onClick = { activity?.let { viewModel.tryBiometric(it, automatic = false, onUnlocked = onUnlocked) } }) {
                 Icon(
                     Icons.Filled.Fingerprint,
                     contentDescription = "فتح بالبصمة",

@@ -58,7 +58,17 @@ class LockViewModel @Inject constructor(
 
     private var biometricJob: Job? = null
 
-    fun tryBiometric(activity: FragmentActivity, onUnlocked: () -> Unit) {
+    /**
+     * After the person dismissed the sheet — or it failed for real — the lock screen must not keep raising it
+     * by itself (that would be a loop of sheets nobody asked for). A tap on the icon always asks again, and
+     * leaving the app and coming back starts afresh.
+     */
+    private var autoPromptSuppressed = false
+
+    /** @param automatic true for the sheet the lock screen raises on its own; false for a tap on the icon. */
+    fun tryBiometric(activity: FragmentActivity, automatic: Boolean, onUnlocked: () -> Unit) {
+        if (automatic && autoPromptSuppressed) return
+        if (!automatic) autoPromptSuppressed = false
         // A sheet is already on screen (the automatic one, then a tap on the icon): never stack a second.
         if (biometricJob?.isActive == true) return
         _errorMessage.value = null
@@ -70,24 +80,41 @@ class LockViewModel @Inject constructor(
                         onUnlocked()
                         return@launch
                     }
-                    is BiometricResult.Cancelled -> return@launch // the person chose the PIN pad: no message
+                    is BiometricResult.Cancelled -> {
+                        autoPromptSuppressed = true // the person chose the PIN pad: no message, no second sheet
+                        return@launch
+                    }
                     is BiometricResult.Interrupted -> {
                         // The system cancelled the sheet (the window was not focused yet, the sensor was
                         // busy). Ask again, twice at most — then say so instead of doing nothing.
                         interrupted++
                         if (interrupted > 2) {
+                            autoPromptSuppressed = true
                             _errorMessage.value = "تعذّر فتح نافذة البصمة — ${result.message}. اضغط أيقونة البصمة للمحاولة أو أدخل الرمز."
                             return@launch
                         }
                         delay(700)
                     }
                     is BiometricResult.Error -> {
+                        autoPromptSuppressed = true
                         _errorMessage.value = "تعذّر التحقق بالبصمة — ${result.message}"
                         return@launch
                     }
                 }
             }
         }
+    }
+
+    /**
+     * The lock screen left the front (the app went to the background) or left the screen: close any sheet that
+     * is still up and let the next visit ask afresh. Without this a sheet the system dismissed WITHOUT telling
+     * us would leave a job suspended forever, and the "one sheet at a time" guard above would then refuse every
+     * later attempt — a fingerprint that works some times and not others.
+     */
+    fun resetBiometric() {
+        biometricJob?.cancel()
+        biometricJob = null
+        autoPromptSuppressed = false
     }
 
     /**

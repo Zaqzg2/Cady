@@ -56,6 +56,7 @@ import java.io.FileOutputStream
 @Composable
 fun SettingsCompanyScreen(onBack: () -> Unit = {}, viewModel: SettingsCompanyViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsState()
+    val initialSettings by viewModel.initialSettings.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -68,15 +69,17 @@ fun SettingsCompanyScreen(onBack: () -> Unit = {}, viewModel: SettingsCompanyVie
     var repDisplayName by remember { mutableStateOf("") }
     var initialized by remember { mutableStateOf(false) }
 
-    // Populate the fields once from the loaded settings — after that, the
-    // user's own edits are the source of truth until they tap "حفظ".
-    LaunchedEffect(settings) {
+    // Populate the fields once from the settings that were actually READ from storage (never from the
+    // placeholder the flow starts with) — after that, the user's own edits are the source of truth until
+    // they tap "حفظ".
+    LaunchedEffect(initialSettings) {
+        val loaded = initialSettings ?: return@LaunchedEffect
         if (!initialized) {
-            name = settings.companyName
-            address = settings.companyAddress
-            phone = settings.companyPhone
-            footer = settings.invoiceFooterText
-            repDisplayName = settings.repDisplayName
+            name = loaded.companyName
+            address = loaded.companyAddress
+            phone = loaded.companyPhone
+            footer = loaded.invoiceFooterText
+            repDisplayName = loaded.repDisplayName
             initialized = true
         }
     }
