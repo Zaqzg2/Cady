@@ -129,8 +129,9 @@ class WebOrdersNotifier @Inject constructor(
     private fun detailText(order: WebOrder): String = buildString {
         append(summaryLine(order))
         order.phone?.let { append("\n").append(it) }
-        order.address?.let { append("\n").append(it) }
+        order.address?.let { append("\n").append(order.addressLabel).append(": ").append(it) }
         order.note?.let { append("\n").append(it) }
+        order.ref?.let { append("\nرقم الطلب: ").append(it) }
     }
 
     private companion object {

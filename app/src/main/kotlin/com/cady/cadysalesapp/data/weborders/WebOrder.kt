@@ -32,12 +32,13 @@ enum class WebOrderStatus(val key: String, val label: String) {
     }
 }
 
-/** One product line of an order, kept as text: the page's assistant writes what the customer said. */
+/** One product line of an order, kept as text. The page writes `{scent: "ليمون", cartons: 2}`. */
 data class WebOrderItem(val name: String, val quantity: String?, val unit: String?) {
+    /** "ليمون: 2 كرتونة" — the same wording the page itself shows the customer in its summary. */
     fun display(): String = buildString {
         append(name)
         if (!quantity.isNullOrBlank()) {
-            append(" × ")
+            append(": ")
             append(quantity)
             if (!unit.isNullOrBlank()) {
                 append(" ")
@@ -49,9 +50,13 @@ data class WebOrderItem(val name: String, val quantity: String?, val unit: Strin
 
 data class WebOrder(
     val id: String,
+    /** The short code the page gave the customer ("K-AB12CD") — what they quote when they write on WhatsApp. */
+    val ref: String?,
     val customerName: String,
     val phone: String?,
     val address: String?,
+    /** What [address] is called on screen: the page asks for a "المنطقة"; another writer might send a full "العنوان". */
+    val addressLabel: String,
     val note: String?,
     val items: List<WebOrderItem>,
     val status: WebOrderStatus,
@@ -59,7 +64,7 @@ data class WebOrder(
     /** Anything else the page stored that has no named place on the screen: label → text. Nothing is hidden. */
     val extras: List<Pair<String, String>>,
 ) {
-    /** "لمون × 2 • رمان × 1" — the whole order in one line. */
+    /** "ليمون: 2 كرتونة • رمان: 1 كرتونة" — the whole order in one line. */
     fun itemsText(): String = items.joinToString(" • ") { it.display() }
 }
 
@@ -82,22 +87,26 @@ internal fun DocumentSnapshot.toWebOrder(): WebOrder? {
 internal fun parseWebOrder(id: String, fields: Map<String, Any?>): WebOrder {
     val used = HashSet<String>()
 
-    fun text(keys: List<String>, from: Map<String, Any?> = fields, track: Boolean = true): String? {
+    fun found(keys: List<String>, from: Map<String, Any?> = fields, track: Boolean = true): Pair<String, String>? {
         for (key in keys) {
             val value = scalarText(from[key]) ?: continue
             if (track) used.add(key)
-            return value
+            return key to value
         }
         return null
     }
+
+    fun text(keys: List<String>, from: Map<String, Any?> = fields, track: Boolean = true): String? =
+        found(keys, from, track)?.second
 
     val customer = (fields["customer"] as? Map<*, *>)?.let { stringKeyed(it) }
     if (customer != null) used.add("customer")
 
     val name = text(NAME_KEYS) ?: customer?.let { text(NAME_KEYS, it, track = false) }
     val phone = text(PHONE_KEYS) ?: customer?.let { text(PHONE_KEYS, it, track = false) }
-    val address = text(ADDRESS_KEYS) ?: customer?.let { text(ADDRESS_KEYS, it, track = false) }
+    val addressHit = found(ADDRESS_KEYS) ?: customer?.let { found(ADDRESS_KEYS, it, track = false) }
     val note = text(NOTE_KEYS)
+    val ref = text(REF_KEYS)
 
     var items: List<WebOrderItem> = emptyList()
     for (key in ITEMS_KEYS) {
@@ -124,14 +133,16 @@ internal fun parseWebOrder(id: String, fields: Map<String, Any?>): WebOrder {
 
     used.add("status")
     val extras = fields.entries
-        .filter { it.key !in used && it.key !in HIDDEN_KEYS }
+        .filter { it.key !in used && it.key !in HIDDEN_KEYS && !isPlainWebSource(it.key, it.value) }
         .mapNotNull { (key, value) -> describe(value)?.let { labelFor(key) to it } }
 
     return WebOrder(
         id = id,
+        ref = ref,
         customerName = name ?: DEFAULT_NAME,
         phone = phone,
-        address = address,
+        address = addressHit?.second,
+        addressLabel = addressHit?.first?.let { ADDRESS_LABELS[it] } ?: "العنوان",
         note = note,
         items = items,
         status = WebOrderStatus.from(fields["status"]),
@@ -151,17 +162,23 @@ private val PHONE_KEYS = listOf(
     "الهاتف", "الجوال", "رقم الهاتف",
 )
 private val ADDRESS_KEYS = listOf("address", "deliveryAddress", "delivery_address", "location", "city", "area", "العنوان", "المدينة")
+private val ADDRESS_LABELS = mapOf("area" to "المنطقة", "city" to "المدينة", "المدينة" to "المدينة", "location" to "الموقع")
+private val REF_KEYS = listOf("ref", "orderRef", "order_ref", "orderNumber", "order_number", "رقم الطلب")
 private val NOTE_KEYS = listOf("note", "notes", "comment", "comments", "message", "details", "ملاحظات")
 private val ITEMS_KEYS = listOf("items", "products", "cart", "lines", "orderItems", "order_items", "الأصناف")
 private val PRODUCT_KEYS = listOf("product", "productName", "product_name", "flavor", "flavour", "item", "المنتج")
 private val QTY_KEYS = listOf("quantity", "qty", "cartons", "count", "الكمية")
 private val UNIT_KEYS = listOf("unit", "الوحدة")
-private val ITEM_NAME_KEYS = listOf("name", "product", "productName", "product_name", "title", "item", "flavor", "flavour", "label")
+private val ITEM_NAME_KEYS = listOf("scent", "name", "product", "productName", "product_name", "title", "item", "flavor", "flavour", "label")
 private val ITEM_QTY_KEYS = listOf("quantity", "qty", "cartons", "count", "amount")
 private val DATE_KEYS = listOf("createdAt", "created_at", "timestamp", "time", "date", "orderedAt", "ts")
 
 /** Written by this app, not by the customer — not worth a line on the order. */
 private val HIDDEN_KEYS = setOf("updatedAt")
+
+/** The page stamps every order `source: "web"`; that is not news on an orders-from-the-website screen. */
+private fun isPlainWebSource(key: String, value: Any?): Boolean =
+    key == "source" && (value as? String)?.trim().equals("web", ignoreCase = true)
 
 private val EXTRA_LABELS = mapOf(
     "quantity" to "الكمية",
@@ -222,8 +239,11 @@ private fun parseItem(element: Any?): WebOrderItem? = when (element) {
 
 private fun itemFromMap(map: Map<String, Any?>): WebOrderItem? {
     val name = ITEM_NAME_KEYS.firstNotNullOfOrNull { scalarText(map[it]) } ?: return null
-    val quantity = ITEM_QTY_KEYS.firstNotNullOfOrNull { scalarText(map[it]) }
+    val quantityKey = ITEM_QTY_KEYS.firstOrNull { scalarText(map[it]) != null }
+    val quantity = quantityKey?.let { scalarText(map[it]) }
+    // The page stores `cartons: 2` — a count of cartons, which is what the unit then says (as the page's own summary does).
     val unit = UNIT_KEYS.firstNotNullOfOrNull { scalarText(map[it]) }
+        ?: if (quantityKey == "cartons" || quantityKey == "carton") "كرتونة" else null
     return WebOrderItem(name, quantity, unit)
 }
 

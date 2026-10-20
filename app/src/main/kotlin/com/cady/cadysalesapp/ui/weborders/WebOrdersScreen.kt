@@ -229,7 +229,7 @@ private fun OrderCard(
     var expanded by rememberSaveable(order.id) { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val phone = order.phone
-    val subtitle = listOfNotNull(order.createdAt?.let { friendlyDateTime(it) }, phone).joinToString(" • ")
+    val subtitle = listOfNotNull(order.ref, order.createdAt?.let { friendlyDateTime(it) }, phone).joinToString(" • ")
     val items = order.itemsText()
 
     CadyCard(onClick = { expanded = !expanded }) {
@@ -264,7 +264,7 @@ private fun OrderCard(
             }
             // Tapping the card opens everything the customer sent.
             if (expanded) {
-                order.address?.let { DetailLine("العنوان", it) }
+                order.address?.let { DetailLine(order.addressLabel, it) }
                 order.note?.let { DetailLine("ملاحظات", it) }
                 order.extras.forEach { (label, value) -> DetailLine(label, value) }
             }

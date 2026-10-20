@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasProfile() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isManager() {
+      return hasProfile() && myProfile().role == 'manager' && myProfile().isActive == true;
+    }
+
+    // مسجّل دخول، وحسابه موجود بـ Firestore، وغير معطَّل من المدير
+    function isActiveSelf() {
+      return hasProfile() && myProfile().isActive == true;
+    }
+
+    function isOwner(ownerUid) {
+      return isActiveSelf() && request.auth.uid == ownerUid;
+    }
+
+    // ---------------- ملفات تعريف المستخدمين (مدير/مندوب) ----------------
+    // create مسموح لأي مستخدم مسجّل دخول لمستند بمعرّفه هو نفسه
+    // (سيناريو إنشاء أول حساب مدير). update/delete حصرًا للمدير.
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isManager());
+      allow create: if isSignedIn() && (request.auth.uid == userId || isManager());
+      allow update, delete: if isManager();
+    }
+
+    // ---------------- العملاء ----------------
+    match /customers/{customerId} {
+      allow read, update, delete: if isOwner(resource.data.ownerUid) || isManager();
+      allow create: if isActiveSelf() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ---------------- المنتجات (كتالوج مشترك) ----------------
+    match /products/{productId} {
+      allow read: if isActiveSelf();
+      allow write: if isManager();
+    }
+
+    // ---------------- الفواتير (نقدي / آجل / مرتجع) ----------------
+    match /invoices/{invoiceId} {
+      allow read, update, delete: if isOwner(resource.data.ownerUid) || isManager();
+      allow create: if isActiveSelf() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ---------------- سندات القبض ----------------
+    match /receipts/{receiptId} {
+      allow read, update, delete: if isOwner(resource.data.ownerUid) || isManager();
+      allow create: if isActiveSelf() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ---------------- العروض (جديد) ----------------
+    match /offers/{offerId} {
+      allow read: if isActiveSelf();
+      allow write: if isManager();
+    }
+
+    // ---------------- شواهد الحذف (جديد) ----------------
+    match /deletions/{key} {
+      allow read: if isActiveSelf();
+      allow create: if isActiveSelf() &&
+        (isManager() || request.resource.data.ownerUid == request.auth.uid);
+      allow update, delete: if isManager();
+    }
+
+    // ---------------- طلبات الموقع (جديد) ----------------
+    // الزائر بلا تسجيل دخول ينشئ طلبًا بهذه الحقول فقط (لم يتغيّر شيء في قاعدة الإنشاء).
+    // المدير يقرأ الطلبات ويغيّر حالتها: التعديل مقيَّد بالحقلين status و updatedAt فقط (تكتبهما شاشة «طلبات الموقع» معًا).
+    match /web_orders/{orderId} {
+      allow create: if request.resource.data.keys().hasOnly(['ref','name','phone','area','items','status','source','createdAt'])
+        && request.resource.data.ref is string && request.resource.data.ref.size() <= 12
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 15
+        && request.resource.data.area is string && request.resource.data.area.size() <= 120
+        && request.resource.data.items is list && request.resource.data.items.size() >= 1 && request.resource.data.items.size() <= 10
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.status == 'new' && request.resource.data.source == 'web';
+      allow read: if isManager();
+      allow update: if isManager()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['new', 'processing', 'done', 'cancelled']
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isManager();
+    }
+  }
+}
