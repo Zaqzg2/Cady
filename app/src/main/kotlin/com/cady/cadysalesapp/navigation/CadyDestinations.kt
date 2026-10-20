@@ -61,6 +61,7 @@ sealed class CadyDestination(val route: String) {
         fun createRoute(repId: String? = null) = "manager/live_activity?repId=${repId.orEmpty()}"
     }
     data object ManagerOffers : CadyDestination("manager/offers")
+    data object ManagerWebOrders : CadyDestination("manager/web_orders")
     data object ManagerImport : CadyDestination("manager/import")
     data object ManagerExport : CadyDestination("manager/export")
     data object ManagerSyncLog : CadyDestination("manager/sync_log")

@@ -9,7 +9,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * What the launcher shortcuts and the home-screen widget ask for. They start MainActivity with one of
+ * What the launcher shortcuts, the home-screen widget and the website-order notification ask for. They start MainActivity with one of
  * these actions; MainActivity drops it in [QuickLaunchHolder] and the navigation host opens the
  * screen as soon as someone is signed in (a locked app opens it behind the lock, which stays on top).
  */
@@ -18,7 +18,10 @@ object QuickLaunch {
     const val ACTION_NEW_RECEIPT = "com.cady.cadysalesapp.action.NEW_RECEIPT"
     const val ACTION_NEW_CASH_SALE = "com.cady.cadysalesapp.action.NEW_CASH_SALE"
 
-    val ALL = setOf(ACTION_NEW_INVOICE, ACTION_NEW_RECEIPT, ACTION_NEW_CASH_SALE)
+    /** Tapped on the "new website order" notification: opens the manager's orders screen (ignored for a rep). */
+    const val ACTION_OPEN_WEB_ORDERS = "com.cady.cadysalesapp.action.OPEN_WEB_ORDERS"
+
+    val ALL = setOf(ACTION_NEW_INVOICE, ACTION_NEW_RECEIPT, ACTION_NEW_CASH_SALE, ACTION_OPEN_WEB_ORDERS)
 }
 
 @Singleton

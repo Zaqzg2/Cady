@@ -3,6 +3,7 @@ package com.cady.cadysalesapp
 import android.app.Application
 import com.cady.cadysalesapp.data.backup.AutoBackupScheduler
 import com.cady.cadysalesapp.data.backup.BackupSettingsRepository
+import com.cady.cadysalesapp.data.weborders.WebOrdersAlerts
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,10 @@ class CadyApplication : Application() {
     @Inject
     lateinit var backupSettings: BackupSettingsRepository
 
+    // Lazy on purpose: it pulls in the account repository, which startup itself does not need (see the cold-start note above).
+    @Inject
+    lateinit var webOrdersAlerts: dagger.Lazy<WebOrdersAlerts>
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -52,6 +57,14 @@ class CadyApplication : Application() {
                 )
             } catch (e: Exception) {
                 android.util.Log.w("CadyBackup", "Could not re-apply the backup schedule: ${e.message}")
+            }
+        }
+        // Keeps the website-order check in step with the signed-in account (a manager with the alerts on).
+        appScope.launch {
+            try {
+                webOrdersAlerts.get().start(appScope)
+            } catch (e: Exception) {
+                android.util.Log.w("CadyWebOrders", "Could not start the web-order alerts: ${e.message}")
             }
         }
     }

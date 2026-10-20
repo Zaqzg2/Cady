@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 13+: the "new website order" alert is a notification, which needs this permission to be granted. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Bluetooth thermal printer (ESC/POS over a classic socket) -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />

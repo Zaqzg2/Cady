@@ -37,6 +37,9 @@ import com.cady.cadysalesapp.ui.reports.ReportsScreen
 import com.cady.cadysalesapp.ui.receipt.ReceiptScreen
 import com.cady.cadysalesapp.ui.session.SessionViewModel
 import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
+import com.cady.cadysalesapp.ui.weborders.WebOrdersBadgeViewModel
+import com.cady.cadysalesapp.ui.weborders.WebOrdersScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * Every route from CadyDestinations wired to a placeholder screen so the app
@@ -79,6 +82,11 @@ fun CadyNavHost(
         if (currentUser == null) return@LaunchedEffect
         if (route == CadyDestination.Login.route || route == CadyDestination.SetupManager.route) return@LaunchedEffect
         quickLaunchViewModel.consume()
+        if (action == QuickLaunch.ACTION_OPEN_WEB_ORDERS) {
+            // The "new website order" notification: only a manager has that screen.
+            if (isManager) navController.navigate(CadyDestination.ManagerWebOrders.route) { launchSingleTop = true }
+            return@LaunchedEffect
+        }
         val target = when (action) {
             QuickLaunch.ACTION_NEW_RECEIPT -> CadyDestination.Receipt.createRoute()
             QuickLaunch.ACTION_NEW_CASH_SALE -> CadyDestination.Invoice.createRoute(cash = true)
@@ -338,11 +346,15 @@ fun CadyNavHost(
                 onExportClick = { navController.navigate(CadyDestination.ManagerExport.route) },
                 onSyncLogClick = { navController.navigate(CadyDestination.ManagerSyncLog.route) },
                 onOffersClick = { navController.navigate(CadyDestination.ManagerOffers.route) },
+                onWebOrdersClick = { navController.navigate(CadyDestination.ManagerWebOrders.route) },
                 bottomBar = bottomBar,
             )
         }
         composable(CadyDestination.ManagerOffers.route) {
             OffersScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.ManagerWebOrders.route) {
+            WebOrdersScreen(onBack = { navController.popBackStack() })
         }
         composable(CadyDestination.ManagerUsers.route) {
             ManagerUsersScreen(
@@ -389,9 +401,13 @@ fun CadyNavHost(
     }
 }
 
-/** The bottom bar for whoever is signed in — managers get the extra tab. */
+/** The bottom bar for whoever is signed in — managers get the extra tab, with the waiting website orders on it. */
 @Composable
 private fun RoleBottomBar(navController: NavHostController, sessionViewModel: SessionViewModel) {
     val user by sessionViewModel.currentUser.collectAsState()
-    CadyBottomBar(navController, isManager = user?.role == UserRole.MANAGER)
+    val isManager = user?.role == UserRole.MANAGER
+    // One shared listener behind every screen's bar (it only runs while the app is on screen, and never for a rep).
+    val badgeViewModel: WebOrdersBadgeViewModel = hiltViewModel()
+    val waitingOrders by badgeViewModel.newCount.collectAsStateWithLifecycle()
+    CadyBottomBar(navController, isManager = isManager, managerBadge = if (isManager) waitingOrders else 0)
 }

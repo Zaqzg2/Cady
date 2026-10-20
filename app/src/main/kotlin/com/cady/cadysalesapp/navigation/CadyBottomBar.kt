@@ -18,6 +18,8 @@ import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -71,7 +73,7 @@ private val managerTab =
  * tab, a hairline above the bar instead of a tinted slab, and a light haptic tick on every change of tab.
  */
 @Composable
-fun CadyBottomBar(navController: NavHostController, isManager: Boolean = false) {
+fun CadyBottomBar(navController: NavHostController, isManager: Boolean = false, managerBadge: Int = 0) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val visibleTabs = if (isManager) tabs + managerTab else tabs
@@ -101,14 +103,22 @@ fun CadyBottomBar(navController: NavHostController, isManager: Boolean = false) 
                         }
                     },
                     icon = {
-                        Icon(
-                            imageVector = if (selected) tab.selectedIcon else tab.icon,
-                            contentDescription = tab.label,
-                            modifier = Modifier.graphicsLayer {
-                                scaleX = iconScale
-                                scaleY = iconScale
+                        // The manager tab carries the number of website orders still waiting for a first look.
+                        val badge = if (tab.route == managerTab.route) managerBadge else 0
+                        BadgedBox(
+                            badge = {
+                                if (badge > 0) Badge { Text(if (badge > 9) "9+" else badge.toString()) }
                             },
-                        )
+                        ) {
+                            Icon(
+                                imageVector = if (selected) tab.selectedIcon else tab.icon,
+                                contentDescription = tab.label,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                },
+                            )
+                        }
                     },
                     label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
                     colors = NavigationBarItemDefaults.colors(

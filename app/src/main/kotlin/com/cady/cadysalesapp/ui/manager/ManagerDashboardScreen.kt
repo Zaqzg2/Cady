@@ -1,5 +1,9 @@
 package com.cady.cadysalesapp.ui.manager
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -17,21 +21,27 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.Badge
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cady.cadysalesapp.ui.common.CadyAppBar
 import com.cady.cadysalesapp.ui.common.CadyCard
 import com.cady.cadysalesapp.ui.common.HeroCard
@@ -46,6 +56,8 @@ private class ManagerEntry(
     val icon: ImageVector,
     val color: Color,
     val onClick: () -> Unit,
+    /** A number on the tile (orders waiting, …); 0 shows nothing. */
+    val badge: Int = 0,
 )
 
 /**
@@ -63,12 +75,31 @@ fun ManagerDashboardScreen(
     onExportClick: () -> Unit,
     onSyncLogClick: () -> Unit,
     onOffersClick: () -> Unit,
+    onWebOrdersClick: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
     viewModel: ManagerDashboardViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // Android 13+: the new-website-order alert is a notification, which needs the user's permission. Asked here, on the
+    // manager's front page, so the alerts work from the first sign-in — not only after the orders screen is opened.
+    // (A refusal is not nagged about: the system stops showing its dialog after two, and the orders screen explains.)
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(state.alertsEnabled) {
+        if (state.alertsEnabled == true &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !NotificationManagerCompat.from(context).areNotificationsEnabled()
+        ) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val entries = listOf(
+        ManagerEntry(
+            "طلبات الموقع", "طلبات التجّار من صفحة البيع — راجعها وغيّر حالتها",
+            Icons.Filled.Public, SwipeColors.Red, onWebOrdersClick, badge = state.newWebOrders,
+        ),
         ManagerEntry("المندوبون", "إضافة المندوبين وإدارة حساباتهم ونشاط كل منهم", Icons.Filled.Group, SwipeColors.Blue, onUsersClick),
         ManagerEntry("مركز المزامنة", "حالة كل مندوب وإحصاءات الاستيراد والتصدير", Icons.Filled.Sync, SwipeColors.Teal, onSyncHubClick),
         ManagerEntry("النشاط المباشر", "فواتير وسندات المندوبين فور وصولها", Icons.Filled.Visibility, SwipeColors.Green, onLiveActivityClick),
@@ -136,7 +167,13 @@ private fun HeroStat(label: String, value: String) {
 private fun ToolTile(entry: ManagerEntry, modifier: Modifier = Modifier) {
     CadyCard(onClick = entry.onClick, modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconTile(icon = entry.icon, tint = Color.White, container = entry.color, size = 44.dp)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                IconTile(icon = entry.icon, tint = Color.White, container = entry.color, size = 44.dp)
+                Spacer(Modifier.weight(1f))
+                if (entry.badge > 0) {
+                    Badge(containerColor = MaterialTheme.colorScheme.error) { Text(entry.badge.toString()) }
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(entry.title, style = MaterialTheme.typography.titleSmall)
                 Text(
