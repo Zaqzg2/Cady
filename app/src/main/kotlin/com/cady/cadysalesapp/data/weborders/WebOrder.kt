@@ -33,7 +33,15 @@ enum class WebOrderStatus(val key: String, val label: String) {
 }
 
 /** One product line of an order, kept as text. The page writes `{scent: "ليمون", cartons: 2}`. */
-data class WebOrderItem(val name: String, val quantity: String?, val unit: String?) {
+data class WebOrderItem(
+    val name: String,
+    val quantity: String?,
+    val unit: String?,
+    /** What one carton was agreed at (the AI seller's quote), when the page wrote it. */
+    val price: Long? = null,
+    /** The quote this line came from ("Q-AB12CD"). */
+    val quoteRef: String? = null,
+) {
     /** "ليمون: 2 كرتونة" — the same wording the page itself shows the customer in its summary. */
     fun display(): String = buildString {
         append(name)
@@ -66,6 +74,22 @@ data class WebOrder(
 ) {
     /** "ليمون: 2 كرتونة • رمان: 1 كرتونة" — the whole order in one line. */
     fun itemsText(): String = items.joinToString(" • ") { it.display() }
+
+    /** The quote the customer accepted on the page ("Q-AB12CD"), when the order came from the AI seller. */
+    val quoteRef: String? get() = items.firstNotNullOfOrNull { it.quoteRef }
+
+    /** What the customer was promised: cartons × agreed price, when every line carries both. */
+    val agreedTotal: Long?
+        get() {
+            if (items.isEmpty()) return null
+            var total = 0L
+            for (item in items) {
+                val cartons = item.quantity?.toLongOrNull() ?: return null
+                val price = item.price ?: return null
+                total += cartons * price
+            }
+            return total
+        }
 }
 
 fun List<WebOrder>.newestFirst(): List<WebOrder> =
@@ -244,7 +268,8 @@ private fun itemFromMap(map: Map<String, Any?>): WebOrderItem? {
     // The page stores `cartons: 2` — a count of cartons, which is what the unit then says (as the page's own summary does).
     val unit = UNIT_KEYS.firstNotNullOfOrNull { scalarText(map[it]) }
         ?: if (quantityKey == "cartons" || quantityKey == "carton") "كرتونة" else null
-    return WebOrderItem(name, quantity, unit)
+    val price = scalarText(map["price"])?.toLongOrNull()
+    return WebOrderItem(name, quantity, unit, price, scalarText(map["quote"]))
 }
 
 /** A field the screen has no named place for, as one line of text (null when there is nothing to show). */

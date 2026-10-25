@@ -9,13 +9,17 @@ import com.cady.cadysalesapp.data.weborders.WebOrdersFeed
 import com.cady.cadysalesapp.data.weborders.WebOrdersMonitor
 import com.cady.cadysalesapp.data.weborders.WebOrdersNotifier
 import com.cady.cadysalesapp.data.weborders.WebOrdersRepository
+import com.cady.cadysalesapp.data.weborders.WebQuote
+import com.cady.cadysalesapp.data.weborders.WebQuotesRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -37,12 +41,20 @@ data class WebOrdersUiState(
     val visible: List<WebOrder> get() = orders.filter { it.status == filter }
 }
 
+/** The offers the AI seller built (newest first), for the "العروض" tab. */
+data class QuotesUiState(
+    val quotes: List<WebQuote> = emptyList(),
+    val loading: Boolean = true,
+    val error: String? = null,
+)
+
 @HiltViewModel
 class WebOrdersViewModel @Inject constructor(
     monitor: WebOrdersMonitor,
     private val repository: WebOrdersRepository,
     private val settings: WebOrdersAlertSettings,
     private val notifier: WebOrdersNotifier,
+    private val quotesRepository: WebQuotesRepository,
 ) : ViewModel() {
 
     private val filter = MutableStateFlow(WebOrderStatus.NEW)
@@ -62,6 +74,23 @@ class WebOrdersViewModel @Inject constructor(
                 message = note,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WebOrdersUiState())
+
+    val quotes: StateFlow<QuotesUiState> = quotesRepository.observeRecent()
+        .map { QuotesUiState(quotes = it, loading = false) }
+        .catch { e ->
+            val denied = e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+            emit(
+                QuotesUiState(
+                    loading = false,
+                    error = if (denied) {
+                        "لا توجد صلاحية لقراءة العروض — انشر قواعد Firestore الجديدة (quotes)"
+                    } else {
+                        "تعذّر تحميل العروض — تحقّق من الإنترنت"
+                    },
+                )
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuotesUiState())
 
     init {
         // Opening the list is looking at the orders: the notification about them has done its job.

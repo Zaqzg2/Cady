@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
@@ -76,6 +77,7 @@ fun ManagerDashboardScreen(
     onSyncLogClick: () -> Unit,
     onOffersClick: () -> Unit,
     onWebOrdersClick: () -> Unit,
+    onBotSettingsClick: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
     viewModel: ManagerDashboardViewModel = hiltViewModel(),
 ) {
@@ -99,6 +101,10 @@ fun ManagerDashboardScreen(
         ManagerEntry(
             "طلبات الموقع", "طلبات التجّار من صفحة البيع — راجعها وغيّر حالتها",
             Icons.Filled.Public, SwipeColors.Red, onWebOrdersClick, badge = state.newWebOrders,
+        ),
+        ManagerEntry(
+            "البائع الآلي", "أسعار التفاوض وتشغيل الرد الآلي في صفحة البيع",
+            Icons.Filled.Chat, SwipeColors.Teal, onBotSettingsClick,
         ),
         ManagerEntry("المندوبون", "إضافة المندوبين وإدارة حساباتهم ونشاط كل منهم", Icons.Filled.Group, SwipeColors.Blue, onUsersClick),
         ManagerEntry("مركز المزامنة", "حالة كل مندوب وإحصاءات الاستيراد والتصدير", Icons.Filled.Sync, SwipeColors.Teal, onSyncHubClick),

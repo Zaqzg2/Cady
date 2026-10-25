@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -65,13 +66,17 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cady.cadysalesapp.data.weborders.WebOrder
 import com.cady.cadysalesapp.data.weborders.WebOrderStatus
+import com.cady.cadysalesapp.data.weborders.WebQuote
+import com.cady.cadysalesapp.data.weborders.WebQuotesRepository
 import com.cady.cadysalesapp.ui.common.BackButton
 import com.cady.cadysalesapp.ui.common.CadyAppBar
 import com.cady.cadysalesapp.ui.common.CadyCard
 import com.cady.cadysalesapp.ui.common.EmptyState
 import com.cady.cadysalesapp.ui.common.Pill
+import com.cady.cadysalesapp.ui.common.SegmentedChoice
 import com.cady.cadysalesapp.ui.common.SwipeColors
 import com.cady.cadysalesapp.ui.common.dial
+import com.cady.cadysalesapp.ui.common.formatMoney
 import com.cady.cadysalesapp.ui.common.friendlyDateTime
 import com.cady.cadysalesapp.ui.common.openWhatsApp
 import com.cady.cadysalesapp.ui.theme.cady
@@ -90,6 +95,12 @@ fun WebOrdersScreen(
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
     var pendingCancel by remember { mutableStateOf<WebOrder?>(null) }
+    val quotes by viewModel.quotes.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableStateOf(0) }
+    val quoteByRef = remember(quotes.quotes) { quotes.quotes.associateBy { it.ref } }
+    val orderedRefs = remember(state.orders) { state.orders.mapNotNull { it.quoteRef }.toSet() }
+    // A full list may be hiding older offers, so "not found" only means something when the list is shorter than the limit.
+    val quotesComplete = !quotes.loading && quotes.error == null && quotes.quotes.size < WebQuotesRepository.RECENT_LIMIT
 
     // Android 13+ asks before an app may post notifications at all. The screen asks once when it opens (only while
     // the alerts are switched on); a refusal is explained by the banner below instead of being nagged about.
@@ -143,42 +154,55 @@ fun WebOrdersScreen(
             if (state.alertsEnabled && !notificationsAllowed) {
                 item(key = "permission") { PermissionBanner(onOpenSettings = { openNotificationSettings(context) }) }
             }
-            item(key = "filters") { FilterRow(state, viewModel::select) }
+            item(key = "tabs") {
+                SegmentedChoice(
+                    options = listOf(0 to "الطلبات", 1 to (if (quotes.quotes.isEmpty()) "العروض" else "العروض (${quotes.quotes.size})")),
+                    selected = tab,
+                    onSelect = { tab = it },
+                )
+            }
 
-            val error = state.error
-            if (error != null) {
-                item(key = "error") { ErrorCard(error) }
-            } else if (state.loading && state.orders.isEmpty()) {
-                item(key = "loading") {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+            if (tab == 1) {
+                quotesSection(quotes, orderedRefs)
+            } else {
+                item(key = "filters") { FilterRow(state, viewModel::select) }
+
+                val error = state.error
+                if (error != null) {
+                    item(key = "error") { ErrorCard(error) }
+                } else if (state.loading && state.orders.isEmpty()) {
+                    item(key = "loading") {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (state.visible.isEmpty()) {
+                    item(key = "empty") {
+                        EmptyState(
+                            icon = Icons.Filled.Inbox,
+                            title = "لا توجد طلبات «${state.filter.label}»",
+                            message = if (state.filter == WebOrderStatus.NEW) {
+                                "الطلبات التي يرسلها التجّار من صفحة البيع تظهر هنا فور وصولها."
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
-            } else if (state.visible.isEmpty()) {
-                item(key = "empty") {
-                    EmptyState(
-                        icon = Icons.Filled.Inbox,
-                        title = "لا توجد طلبات «${state.filter.label}»",
-                        message = if (state.filter == WebOrderStatus.NEW) {
-                            "الطلبات التي يرسلها التجّار من صفحة البيع تظهر هنا فور وصولها."
-                        } else {
-                            null
+
+                items(state.visible, key = { it.id }) { order ->
+                    OrderCard(
+                        order = order,
+                        busy = state.busyId == order.id,
+                        verdict = verdictFor(order, quoteByRef, quotesComplete),
+                        onCall = { phone -> context.dial(phone) },
+                        onWhatsApp = { phone -> context.openWhatsApp(phone) },
+                        onSetStatus = { target ->
+                            // Cancelling is the one move that deserves a second thought.
+                            if (target == WebOrderStatus.CANCELLED) pendingCancel = order else viewModel.setStatus(order, target)
                         },
                     )
                 }
-            }
-
-            items(state.visible, key = { it.id }) { order ->
-                OrderCard(
-                    order = order,
-                    busy = state.busyId == order.id,
-                    onCall = { phone -> context.dial(phone) },
-                    onWhatsApp = { phone -> context.openWhatsApp(phone) },
-                    onSetStatus = { target ->
-                        // Cancelling is the one move that deserves a second thought.
-                        if (target == WebOrderStatus.CANCELLED) pendingCancel = order else viewModel.setStatus(order, target)
-                    },
-                )
             }
         }
     }
@@ -222,6 +246,7 @@ private fun FilterRow(state: WebOrdersUiState, onSelect: (WebOrderStatus) -> Uni
 private fun OrderCard(
     order: WebOrder,
     busy: Boolean,
+    verdict: QuoteVerdict?,
     onCall: (String) -> Unit,
     onWhatsApp: (String) -> Unit,
     onSetStatus: (WebOrderStatus) -> Unit,
@@ -261,6 +286,23 @@ private fun OrderCard(
                     maxLines = if (expanded) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            // An order that came from the AI seller carries the price the customer was promised.
+            val agreed = order.agreedTotal
+            if (agreed != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "المتفق عليه: ${formatMoney(agreed.toDouble())}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    when (verdict) {
+                        QuoteVerdict.MATCH -> Pill("مطابق للعرض ${order.quoteRef.orEmpty()}", MaterialTheme.cady.success)
+                        QuoteVerdict.MISMATCH -> Pill("لا يطابق العرض!", MaterialTheme.colorScheme.error)
+                        QuoteVerdict.MISSING -> Pill("العرض غير موجود", MaterialTheme.cady.warning)
+                        null -> Unit
+                    }
+                }
             }
             // Tapping the card opens everything the customer sent.
             if (expanded) {
@@ -360,6 +402,81 @@ private fun nextStep(status: WebOrderStatus): Pair<WebOrderStatus, String>? = wh
     WebOrderStatus.PROCESSING -> WebOrderStatus.DONE to "تم التسليم"
     WebOrderStatus.CANCELLED -> WebOrderStatus.NEW to "إعادة فتح"
     WebOrderStatus.DONE -> null
+}
+
+/** Whether an order's price is the one the seller really offered (the Worker alone writes the offers). */
+private enum class QuoteVerdict { MATCH, MISMATCH, MISSING }
+
+private fun verdictFor(order: WebOrder, byRef: Map<String, WebQuote>, complete: Boolean): QuoteVerdict? {
+    val ref = order.quoteRef ?: return null
+    val quote = byRef[ref] ?: return if (complete) QuoteVerdict.MISSING else null
+    val sameLines = order.items.size == quote.items.size && order.items.all { item ->
+        quote.items.any { q -> q.scent == item.name && q.cartons.toString() == item.quantity && q.unit == item.price }
+    }
+    return if (order.agreedTotal == quote.total && sameLines) QuoteVerdict.MATCH else QuoteVerdict.MISMATCH
+}
+
+private fun LazyListScope.quotesSection(quotes: QuotesUiState, orderedRefs: Set<String>) {
+    val error = quotes.error
+    if (error != null) {
+        item(key = "quotes-error") { ErrorCard(error) }
+    } else if (quotes.loading) {
+        item(key = "quotes-loading") {
+            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+    } else if (quotes.quotes.isEmpty()) {
+        item(key = "quotes-empty") {
+            EmptyState(
+                icon = Icons.Filled.Inbox,
+                title = "لا توجد عروض بعد",
+                message = "كل عرض سعر يبنيه البائع الآلي لزائر من صفحة البيع يظهر هنا، سواء أكّد الطلب أم لا.",
+            )
+        }
+    } else {
+        items(quotes.quotes, key = { it.ref }) { quote -> QuoteCard(quote, ordered = quote.ref in orderedRefs) }
+    }
+}
+
+@Composable
+private fun QuoteCard(quote: WebQuote, ordered: Boolean) {
+    CadyCard {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(quote.ref, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    quote.updatedAt?.let {
+                        Text(
+                            friendlyDateTime(it),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (ordered) {
+                    Pill("تم تأكيد الطلب", MaterialTheme.cady.success)
+                } else {
+                    Pill("لم يؤكَّد بعد", MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text(
+                quote.items.joinToString(" • ") { "${it.scent}: ${it.cartons} كرتونة" },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "الكرتونة ${formatMoney(quote.unit.toDouble())} • الإجمالي ${formatMoney(quote.total.toDouble())}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (quote.isFinal) Pill("آخر سعر", MaterialTheme.cady.warning)
+            }
+        }
+    }
 }
 
 private fun openNotificationSettings(context: Context) {

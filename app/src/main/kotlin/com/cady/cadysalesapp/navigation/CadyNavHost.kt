@@ -37,6 +37,7 @@ import com.cady.cadysalesapp.ui.reports.ReportsScreen
 import com.cady.cadysalesapp.ui.receipt.ReceiptScreen
 import com.cady.cadysalesapp.ui.session.SessionViewModel
 import com.cady.cadysalesapp.ui.setupmanager.SetupManagerScreen
+import com.cady.cadysalesapp.ui.weborders.BotSettingsScreen
 import com.cady.cadysalesapp.ui.weborders.WebOrdersBadgeViewModel
 import com.cady.cadysalesapp.ui.weborders.WebOrdersScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -347,6 +348,7 @@ fun CadyNavHost(
                 onSyncLogClick = { navController.navigate(CadyDestination.ManagerSyncLog.route) },
                 onOffersClick = { navController.navigate(CadyDestination.ManagerOffers.route) },
                 onWebOrdersClick = { navController.navigate(CadyDestination.ManagerWebOrders.route) },
+                onBotSettingsClick = { navController.navigate(CadyDestination.ManagerBotSettings.route) },
                 bottomBar = bottomBar,
             )
         }
@@ -355,6 +357,9 @@ fun CadyNavHost(
         }
         composable(CadyDestination.ManagerWebOrders.route) {
             WebOrdersScreen(onBack = { navController.popBackStack() })
+        }
+        composable(CadyDestination.ManagerBotSettings.route) {
+            BotSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(CadyDestination.ManagerUsers.route) {
             ManagerUsersScreen(
