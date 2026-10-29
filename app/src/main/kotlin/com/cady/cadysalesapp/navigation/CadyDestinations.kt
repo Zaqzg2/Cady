@@ -23,11 +23,18 @@ sealed class CadyDestination(val route: String) {
     }
     data object Products : CadyDestination("products")
     data object Reports : CadyDestination("reports")
-    data object Invoice : CadyDestination("invoice?invoiceId={invoiceId}&customerId={customerId}&kind={kind}&cash={cash}") {
+    data object Invoice : CadyDestination("invoice?invoiceId={invoiceId}&customerId={customerId}&kind={kind}&cash={cash}&webOrderId={webOrderId}") {
         /** [kind] is "return" to open a return invoice; anything else (or none) opens a sale.
-            [cash] starts a cash sale with the walk-in "عميل نقدي" already chosen. */
-        fun createRoute(invoiceId: String? = null, customerId: String? = null, kind: String? = null, cash: Boolean = false) =
-            "invoice?invoiceId=${invoiceId.orEmpty()}&customerId=${customerId.orEmpty()}&kind=${kind.orEmpty()}&cash=${if (cash) "1" else ""}"
+            [cash] starts a cash sale with the walk-in "عميل نقدي" already chosen.
+            [webOrderId] starts an invoice filled from that website order (customer, items, agreed prices). */
+        fun createRoute(
+            invoiceId: String? = null,
+            customerId: String? = null,
+            kind: String? = null,
+            cash: Boolean = false,
+            webOrderId: String? = null,
+        ) =
+            "invoice?invoiceId=${invoiceId.orEmpty()}&customerId=${customerId.orEmpty()}&kind=${kind.orEmpty()}&cash=${if (cash) "1" else ""}&webOrderId=${webOrderId.orEmpty()}"
     }
     data object Receipt : CadyDestination("receipt?receiptId={receiptId}&customerId={customerId}") {
         fun createRoute(receiptId: String? = null, customerId: String? = null) =

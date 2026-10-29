@@ -6,6 +6,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -28,6 +29,7 @@ data class WebOrdersSnapshot(val orders: List<WebOrder>, val fromCache: Boolean)
 @Singleton
 class WebOrdersRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val settings: WebOrdersAlertSettings,
 ) {
     /** Live: an order appears here the moment Firestore has it. Closes with the error if the listener is refused. */
     fun observeRecent(limit: Int = RECENT_LIMIT): Flow<WebOrdersSnapshot> = callbackFlow {
@@ -77,6 +79,54 @@ class WebOrdersRepository @Inject constructor(
             task.await()
             true
         } ?: false
+    }
+
+    /** One order, from the server — or from what this phone remembers when there is no connection. Null when it does not exist. */
+    suspend fun getById(orderId: String): WebOrder? {
+        val reference = firestore.collection(COLLECTION).document(orderId)
+        val snapshot = try {
+            reference.get(Source.SERVER).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            reference.get(Source.CACHE).await()
+        }
+        return if (snapshot.exists()) snapshot.toWebOrder() else null
+    }
+
+    /**
+     * An invoice was issued for [order]: it is remembered on this phone, a NEW order moves to "قيد التجهيز", and the
+     * invoice's id and number are written on the order itself. That last write needs the newer Firestore rules —
+     * without them the phone's own copy still shows the invoice. True once the server has the link.
+     */
+    suspend fun linkInvoice(order: WebOrder, invoiceId: String, invoiceNo: String): Boolean {
+        settings.rememberInvoice(order.id, invoiceId, invoiceNo)
+        if (order.status == WebOrderStatus.NEW) {
+            try {
+                setStatus(order.id, WebOrderStatus.PROCESSING)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The invoice is what matters; the manager can still move the order by hand.
+            }
+        }
+        return try {
+            val task = firestore.collection(COLLECTION).document(order.id).update(
+                mapOf(
+                    "invoiceId" to invoiceId,
+                    "invoiceNo" to invoiceNo,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            )
+            withTimeoutOrNull(SAVE_TIMEOUT_MS) {
+                task.await()
+                true
+            } ?: false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun query(ordered: Boolean, limit: Int): Query {

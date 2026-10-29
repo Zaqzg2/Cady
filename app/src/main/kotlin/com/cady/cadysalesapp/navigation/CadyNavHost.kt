@@ -242,6 +242,7 @@ fun CadyNavHost(
                 navArgument("customerId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("kind") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("cash") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("webOrderId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
             InvoiceScreen(
@@ -356,7 +357,15 @@ fun CadyNavHost(
             OffersScreen(onBack = { navController.popBackStack() })
         }
         composable(CadyDestination.ManagerWebOrders.route) {
-            WebOrdersScreen(onBack = { navController.popBackStack() })
+            WebOrdersScreen(
+                onBack = { navController.popBackStack() },
+                onIssueInvoice = { orderId ->
+                    navController.navigate(CadyDestination.Invoice.createRoute(webOrderId = orderId))
+                },
+                onOpenInvoice = { invoiceId ->
+                    navController.navigate(CadyDestination.PdfPreview.createRoute("invoice", invoiceId))
+                },
+            )
         }
         composable(CadyDestination.ManagerBotSettings.route) {
             BotSettingsScreen(onBack = { navController.popBackStack() })

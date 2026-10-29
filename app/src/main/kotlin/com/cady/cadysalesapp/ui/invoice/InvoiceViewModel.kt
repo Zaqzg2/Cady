@@ -19,6 +19,9 @@ import com.cady.cadysalesapp.data.repository.InvoiceLineInput
 import com.cady.cadysalesapp.data.repository.InvoiceRepository
 import com.cady.cadysalesapp.data.repository.OfferRepository
 import com.cady.cadysalesapp.data.repository.ProductRepository
+import com.cady.cadysalesapp.data.weborders.WebOrder
+import com.cady.cadysalesapp.data.weborders.WebOrderItem
+import com.cady.cadysalesapp.data.weborders.WebOrdersRepository
 import com.cady.cadysalesapp.domain.InvoiceTotals
 import com.cady.cadysalesapp.domain.OfferRules
 import com.cady.cadysalesapp.domain.computeInvoiceTotals
@@ -26,6 +29,7 @@ import com.cady.cadysalesapp.ui.common.formatQuantity
 import com.cady.cadysalesapp.ui.common.parseNumber
 import com.cady.cadysalesapp.ui.common.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +77,8 @@ data class InvoiceFormState(
         `totals` below so the balance-after preview updates on every keystroke
         without a fresh DB query each time. Null while unknown/no customer. */
     val customerBalanceBeforeThis: Double? = null,
+    /** Shown above the form when it was filled from a website order: where it came from and what could not be placed. */
+    val notice: String? = null,
 ) {
     /** Live totals recomputed from the current draft, reusing the exact same
         pure function InvoiceRepository uses at save time — the preview on
@@ -112,12 +118,19 @@ class InvoiceViewModel @Inject constructor(
     private val invoiceRepository: InvoiceRepository,
     private val customerRepository: CustomerRepository,
     private val companySettingsRepository: CompanySettingsRepository,
-    productRepository: ProductRepository,
-    offerRepository: OfferRepository,
+    private val productRepository: ProductRepository,
+    private val offerRepository: OfferRepository,
+    private val webOrdersRepository: WebOrdersRepository,
 ) : ViewModel() {
 
     private val existingInvoiceId: String? = savedStateHandle.get<String>("invoiceId")?.takeIf { it.isNotBlank() }
     private val preselectedCustomerId: String? = savedStateHandle.get<String>("customerId")?.takeIf { it.isNotBlank() }
+
+    /** Set when an invoice is being issued from a website order: the form starts filled from that order. */
+    private val webOrderId: String? = savedStateHandle.get<String>("webOrderId")?.takeIf { it.isNotBlank() }
+
+    /** The order the form was filled from, so saving can note the invoice on it. */
+    private var webOrder: WebOrder? = null
 
     /** Home's "عميل نقدي": a new sale that starts with the walk-in customer already chosen. */
     private val startAsCashSale: Boolean = savedStateHandle.get<String>("cash") == "1"
@@ -163,7 +176,13 @@ class InvoiceViewModel @Inject constructor(
                 existingInvoiceId != null -> loadExistingInvoice(existingInvoiceId)
                 else -> {
                     _form.value = _form.value.copy(kind = initialKind)
+                    val fromOrder = if (webOrderId != null && currentUser != null) {
+                        draftFromWebOrder(webOrderId, currentUser.id)
+                    } else {
+                        null
+                    }
                     val customer = when {
+                        fromOrder != null -> fromOrder.customer
                         preselectedCustomerId != null -> customerRepository.getById(preselectedCustomerId)
                         startAsCashSale && currentUser != null -> customerRepository.findOrCreateCashCustomer(currentUser.id)
                         else -> null
@@ -174,6 +193,15 @@ class InvoiceViewModel @Inject constructor(
                     }.orEmpty()
                     lastSuggestedDocNumber = suggested
                     _form.value = _form.value.copy(docNumber = suggested, selectedCustomer = customer)
+                    if (fromOrder != null) {
+                        // A website order is paid on delivery; the lines, notes and notice come from the order.
+                        _form.value = _form.value.copy(
+                            paymentMode = PaymentMode.CASH,
+                            lines = fromOrder.lines,
+                            notes = fromOrder.notes,
+                            notice = fromOrder.notice,
+                        )
+                    }
                     if (customer != null) refreshBalanceBefore(customer.id, excludeDocId = null)
                 }
             }
@@ -206,6 +234,93 @@ class InvoiceViewModel @Inject constructor(
         if (customer != null) refreshBalanceBefore(customer.id, excludeDocId = id)
     }
 
+    // ------------------------------------------------------------------ an invoice from a website order
+
+    private class WebOrderDraft(
+        val customer: CustomerEntity,
+        val lines: List<EditableLine>,
+        val notes: String,
+        val notice: String,
+    )
+
+    /**
+     * Turns a website order into the starting point of an invoice: the customer (matched by phone, or created from
+     * the order), one line per ordered item at the price the customer was promised, cash payment, and a note saying
+     * where it came from. What it cannot place is named in the notice — never dropped silently.
+     */
+    private suspend fun draftFromWebOrder(orderId: String, ownerUid: String): WebOrderDraft? {
+        val order = try {
+            webOrdersRepository.getById(orderId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (order == null) return null
+        webOrder = order
+
+        val key = phoneKey(order.phone)
+        val existing = key?.let { wanted ->
+            customerRepository.observeEveryone().first().firstOrNull { it.isActive && phoneKey(it.phone) == wanted }
+        }
+        val customer = existing ?: createWebCustomer(order, ownerUid) ?: return null
+
+        val products = productRepository.observeAll().first()
+        val offerList = offerRepository.observeAll().first()
+        val lines = mutableListOf<EditableLine>()
+        val unmatched = mutableListOf<String>()
+        for (item in order.items) {
+            val product = matchProduct(item, products)
+            if (product == null) {
+                unmatched += item.name
+                continue
+            }
+            val quantity = item.quantity?.toDoubleOrNull()?.takeIf { it > 0.0 } ?: 1.0
+            val agreed = item.price?.takeIf { it > 0 }?.toDouble()
+            val line = if (agreed != null) {
+                // The price the customer was promised: never replaced by a list price or an offer.
+                EditableLine(productId = product.id, productName = product.name, price = agreed, quantity = quantity)
+            } else {
+                newLine(product, quantity, offerList)
+            }
+            val same = lines.indexOfFirst { it.productId == product.id && it.price == line.price }
+            if (same >= 0) {
+                lines[same] = lines[same].copy(quantity = lines[same].quantity + quantity)
+            } else {
+                lines += line
+            }
+        }
+
+        val notice = buildString {
+            append("من طلب الموقع ")
+            append(order.ref ?: order.customerName)
+            if (existing == null) append("\nأُنشئ عميل جديد من بيانات الطلب.")
+            if (unmatched.isNotEmpty()) {
+                append("\nلم يُضَف: ${unmatched.joinToString("، ")} — لا منتج مطابق أو أكثر من منتج، فأضفه يدويًا.")
+            }
+        }
+        val notes = listOfNotNull(order.ref?.let { "طلب موقع $it" }, order.quoteRef?.let { "عرض $it" }).joinToString(" • ")
+        return WebOrderDraft(customer, lines, notes, notice)
+    }
+
+    /** A customer made from the order's own details (name, phone, area); null when it could not be saved. */
+    private suspend fun createWebCustomer(order: WebOrder, ownerUid: String): CustomerEntity? =
+        try {
+            customerRepository.createCustomer(
+                ownerUid = ownerUid,
+                name = order.customerName,
+                phone = order.phone,
+                address = order.address,
+                openingBalance = 0.0,
+                creditLimit = null,
+                notes = order.ref?.let { "طلب من الموقع $it" },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
     fun setKind(kind: InvoiceKind) {
         val current = _form.value
         _form.value = current.copy(kind = kind)
@@ -237,8 +352,12 @@ class InvoiceViewModel @Inject constructor(
     fun offerFor(product: ProductEntity): OfferEntity? =
         OfferRules.bestFor(product.id, offers.value, _form.value.date)
 
-    private fun newLine(product: ProductEntity, quantity: Double): EditableLine {
-        val offer = offerFor(product)
+    private fun newLine(
+        product: ProductEntity,
+        quantity: Double,
+        offerList: List<OfferEntity> = offers.value,
+    ): EditableLine {
+        val offer = OfferRules.bestFor(product.id, offerList, _form.value.date)
         return if (offer == null) {
             EditableLine(productId = product.id, productName = product.name, price = product.price, quantity = quantity)
         } else {
@@ -374,6 +493,15 @@ class InvoiceViewModel @Inject constructor(
                     notes = state.notes.ifBlank { null },
                     signaturePath = state.signaturePath,
                 )
+                val fromOrder = webOrder
+                if (fromOrder != null && existingInvoiceId == null) {
+                    // The invoice is already saved; failing to note it on the order must never undo that.
+                    try {
+                        webOrdersRepository.linkInvoice(fromOrder, saved.id, saved.docNumber)
+                    } catch (e: Exception) {
+                        // The order simply will not show the invoice.
+                    }
+                }
                 _saveState.value = UiState.Success
                 onSuccess(saved.id)
             } catch (e: Exception) {
@@ -381,4 +509,52 @@ class InvoiceViewModel @Inject constructor(
             }
         }
     }
+}
+
+/** Letters and digits only, one alef/yaa/haa form, no diacritics — so "كادي ليمون" and "كادى ليمون" are the same name. */
+private fun normalizeName(raw: String): String {
+    val out = StringBuilder()
+    for (ch in raw.lowercase()) {
+        when {
+            ch in '\u064B'..'\u0652' || ch == '\u0640' -> Unit
+            ch in "أإآٱ" -> out.append('ا')
+            ch == 'ى' -> out.append('ي')
+            ch == 'ة' -> out.append('ه')
+            ch.isLetterOrDigit() -> out.append(ch)
+            else -> out.append(' ')
+        }
+    }
+    return out.toString().trim().replace(Regex("\\s+"), " ")
+}
+
+/**
+ * The product an ordered item means: the one the seller linked it to, else the one with the same name, else the
+ * only one whose name contains it (or all of its words). Null when none — or more than one — fits: a wrong
+ * product on an invoice is worse than a missing line the manager adds by hand.
+ */
+private fun matchProduct(item: WebOrderItem, products: List<ProductEntity>): ProductEntity? {
+    item.productId?.let { id -> products.firstOrNull { it.id == id }?.let { return it } }
+    val wanted = normalizeName(item.name)
+    if (wanted.isEmpty()) return null
+    products.filter { normalizeName(it.name) == wanted }.singleOrNull()?.let { return it }
+    val containing = products.filter {
+        val name = normalizeName(it.name)
+        name.contains(wanted) || wanted.contains(name)
+    }
+    if (containing.size == 1) return containing[0]
+    val words = wanted.split(' ').filter { it.length >= 2 }
+    if (words.isEmpty()) return null
+    return products.filter { product ->
+        val name = normalizeName(product.name)
+        words.all { name.contains(it) }
+    }.singleOrNull()
+}
+
+/** The last nine digits of a phone number (Arabic digits too), or null when it is too short to identify anyone. */
+private fun phoneKey(phone: String?): String? {
+    val digits = phone.orEmpty()
+        .map { c -> if (c in '٠'..'٩') '0' + (c - '٠') else c }
+        .filter { it.isDigit() }
+        .joinToString("")
+    return if (digits.length >= 7) digits.takeLast(9) else null
 }

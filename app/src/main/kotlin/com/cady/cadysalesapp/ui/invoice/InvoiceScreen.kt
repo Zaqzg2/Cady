@@ -187,6 +187,17 @@ fun InvoiceScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
+            // Filled from a website order: say where it came from and what could not be placed.
+            form.notice?.let { notice ->
+                CadyCard {
+                    Text(
+                        notice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 SegmentedChoice(
                     options = listOf(InvoiceKind.SALE to "بيع", InvoiceKind.SALE_RETURN to "مرتجع"),

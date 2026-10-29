@@ -14,7 +14,7 @@ import javax.inject.Singleton
 /** What the settings document holds right now; [config] is null while nothing has been saved. */
 data class BotConfigSnapshot(val config: BotConfig?, val fromCache: Boolean)
 
-/** The manager's pricing rules for the page's AI seller. The Firestore rules let only a manager read or write them. */
+/** The manager's items and pricing rules for the page's AI seller. The Firestore rules let only a manager read or write them. */
 @Singleton
 class BotConfigRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
@@ -37,13 +37,28 @@ class BotConfigRepository @Inject constructor(
      * change and sends it when the phone is back online). A refused write (the rules) throws.
      */
     suspend fun save(config: BotConfig): Boolean {
+        // The first available item is also written into the old single-price fields, so a Worker or Script that
+        // has not been updated yet keeps working with that price until it is.
+        val lead = config.items.firstOrNull { it.active } ?: config.items.firstOrNull()
         val task = document().set(
             mapOf(
                 "enabled" to config.enabled,
-                "price" to config.price,
-                "maxDiscount" to config.maxDiscount,
-                "step" to config.step,
                 "validHours" to config.validHours,
+                "items" to config.items.map { item ->
+                    mapOf(
+                        "id" to item.id,
+                        "name" to item.name,
+                        "price" to item.price,
+                        "maxDiscount" to item.maxDiscount,
+                        "step" to item.step,
+                        "active" to item.active,
+                        "note" to item.note,
+                        "productId" to item.productId,
+                    )
+                },
+                "price" to (lead?.price ?: BotDefaults.PRICE),
+                "maxDiscount" to (lead?.maxDiscount ?: BotDefaults.MAX_DISCOUNT),
+                "step" to (lead?.step ?: BotDefaults.STEP),
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
         )

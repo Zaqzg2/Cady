@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cady.cadysalesapp.data.weborders.WebOrder
 import com.cady.cadysalesapp.data.weborders.WebOrderStatus
+import com.cady.cadysalesapp.data.weborders.WebOrderInvoiceLink
 import com.cady.cadysalesapp.data.weborders.WebOrdersAlertSettings
 import com.cady.cadysalesapp.data.weborders.WebOrdersFeed
 import com.cady.cadysalesapp.data.weborders.WebOrdersMonitor
@@ -14,13 +15,16 @@ import com.cady.cadysalesapp.data.weborders.WebQuotesRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -48,9 +52,10 @@ data class QuotesUiState(
     val error: String? = null,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class WebOrdersViewModel @Inject constructor(
-    monitor: WebOrdersMonitor,
+    private val monitor: WebOrdersMonitor,
     private val repository: WebOrdersRepository,
     private val settings: WebOrdersAlertSettings,
     private val notifier: WebOrdersNotifier,
@@ -75,26 +80,62 @@ class WebOrdersViewModel @Inject constructor(
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WebOrdersUiState())
 
-    val quotes: StateFlow<QuotesUiState> = quotesRepository.observeRecent()
-        .map { QuotesUiState(quotes = it, loading = false) }
-        .catch { e ->
-            val denied = e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
-            emit(
-                QuotesUiState(
-                    loading = false,
-                    error = if (denied) {
-                        "لا توجد صلاحية لقراءة العروض — انشر قواعد Firestore الجديدة (quotes)"
-                    } else {
-                        "تعذّر تحميل العروض — تحقّق من الإنترنت"
-                    },
+    /** Invoices issued from orders and remembered on this phone (the order's own copy needs the newer Firestore rules). */
+    val invoiceLinks: StateFlow<Map<String, WebOrderInvoiceLink>> = settings.invoiceLinks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Bumped by [refresh]: the offers listener is attached again (which also revives one that was refused). */
+    private val quotesRestarts = MutableStateFlow(0)
+
+    val quotes: StateFlow<QuotesUiState> = quotesRestarts
+        .flatMapLatest {
+            quotesRepository.observeRecent()
+            .map { QuotesUiState(quotes = it, loading = false) }
+            .catch { e ->
+                val denied = e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+                emit(
+                    QuotesUiState(
+                        loading = false,
+                        error = if (denied) {
+                            "لا توجد صلاحية لقراءة العروض — انشر قواعد Firestore الجديدة (quotes)"
+                        } else {
+                            "تعذّر تحميل العروض — تحقّق من الإنترنت"
+                        },
+                    )
                 )
-            )
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QuotesUiState())
 
     init {
         // Opening the list is looking at the orders: the notification about them has done its job.
         notifier.cancel()
+    }
+
+    private val _refreshing = MutableStateFlow(false)
+
+    /** True while a pull-to-refresh is waiting for the server. */
+    val refreshing: StateFlow<Boolean> = _refreshing
+
+    /**
+     * Pull-to-refresh on both tabs: the live listeners are attached again, and the spinner stops once the server
+     * has answered (or after a few seconds when there is no connection).
+     */
+    fun refresh() {
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                quotesRestarts.update { it + 1 }
+                monitor.refresh()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing to add: a failed list shows its own error card, and pulling again tries again.
+            } finally {
+                _refreshing.value = false
+            }
+        }
     }
 
     fun select(status: WebOrderStatus) {

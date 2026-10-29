@@ -4,7 +4,8 @@ import com.cady.cadysalesapp.data.sync.anyToInstant
 import com.google.firebase.firestore.DocumentSnapshot
 import java.time.Instant
 
-data class WebQuoteItem(val scent: String, val cartons: Long, val unit: Long, val sum: Long)
+/** One line of an offer. [list] is that item's own list price (0 in offers made before each item had one). */
+data class WebQuoteItem(val scent: String, val cartons: Long, val unit: Long, val sum: Long, val list: Long = 0L)
 
 /**
  * An offer the AI seller built for a visitor of the sales page (collection `quotes`). Only the Worker writes
@@ -15,7 +16,7 @@ data class WebQuote(
     /** The code the customer sees on the card ("Q-AB12CD") and that their order carries. */
     val ref: String,
     val items: List<WebQuoteItem>,
-    /** The price of one carton in this offer. */
+    /** The price of one carton of the first line (every line has its own in [items]). */
     val unit: Long,
     /** The list price at the time. */
     val list: Long,
@@ -32,7 +33,7 @@ internal fun DocumentSnapshot.toWebQuote(): WebQuote? {
     val items = (fields["items"] as? List<*>).orEmpty().mapNotNull { raw ->
         val map = (raw as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value } ?: return@mapNotNull null
         val scent = map["scent"] as? String ?: return@mapNotNull null
-        WebQuoteItem(scent, number(map["cartons"]) ?: 0L, number(map["unit"]) ?: 0L, number(map["sum"]) ?: 0L)
+        WebQuoteItem(scent, number(map["cartons"]) ?: 0L, number(map["unit"]) ?: 0L, number(map["sum"]) ?: 0L, number(map["list"]) ?: 0L)
     }
     return WebQuote(
         ref = fields["ref"] as? String ?: id,

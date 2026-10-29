@@ -12,6 +12,9 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** The invoice issued for a web order, as the order's card shows it. */
+data class WebOrderInvoiceLink(val invoiceId: String, val invoiceNo: String)
+
 /**
  * Two device-only preferences of the web-order alerts (never part of a backup, like the backup switches):
  * whether the manager wants to be alerted, and which orders were already announced so that the live listener
@@ -24,6 +27,28 @@ class WebOrdersAlertSettings @Inject constructor(
     private object Keys {
         val enabled = booleanPreferencesKey("web_orders_alerts_enabled")
         val announced = stringSetPreferencesKey("web_orders_announced_ids")
+        val invoices = stringSetPreferencesKey("web_orders_invoice_links")
+    }
+
+    /**
+     * Invoices issued from web orders, kept on this phone as well ("orderId|invoiceId|invoiceNo"). The copy written
+     * on the order itself needs the newer Firestore rules; this one works regardless, so a card never forgets its invoice.
+     */
+    val invoiceLinks: Flow<Map<String, WebOrderInvoiceLink>> = dataStore.data.map { prefs ->
+        prefs[Keys.invoices].orEmpty().mapNotNull { entry ->
+            val parts = entry.split('|', limit = 3)
+            if (parts.size == 3) parts[0] to WebOrderInvoiceLink(parts[1], parts[2]) else null
+        }.toMap()
+    }
+
+    suspend fun rememberInvoice(orderId: String, invoiceId: String, invoiceNo: String) {
+        withContext(NonCancellable) {
+            dataStore.edit { prefs ->
+                val kept = prefs[Keys.invoices].orEmpty().filterNot { it.startsWith("$orderId|") }
+                val entry = "$orderId|$invoiceId|${invoiceNo.replace('|', ' ')}"
+                prefs[Keys.invoices] = (kept + entry).takeLast(MAX_LINKS).toSet()
+            }
+        }
     }
 
     /** On unless the manager switched it off: someone who never touched the switch wants to hear about orders. */
@@ -65,5 +90,6 @@ class WebOrdersAlertSettings @Inject constructor(
 
     private companion object {
         const val MAX_KNOWN = 500
+        const val MAX_LINKS = 300
     }
 }

@@ -10,16 +10,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -52,11 +57,27 @@ class WebOrdersMonitor @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Bumped by [refresh]: the live listener is dropped and attached again (which also revives one that failed). */
+    private val restarts = MutableStateFlow(0)
+
+    /** How many times the SERVER (not this phone's cache) has answered the listener — [refresh] waits for the next one. */
+    private val serverAnswers = MutableStateFlow(0)
+
+    /** The last list shown, so a refresh keeps it on screen instead of flashing an empty page while it reloads. */
+    @Volatile
+    private var lastData: WebOrdersFeed.Data? = null
+
     val feed: StateFlow<WebOrdersFeed> = accountRepository.currentUser
         .map { it?.role == UserRole.MANAGER }
         .distinctUntilChanged()
+        .combine(restarts) { isManager, _ -> isManager }
         .flatMapLatest { isManager ->
-            if (isManager) liveFeed() else flowOf<WebOrdersFeed>(WebOrdersFeed.Idle)
+            if (isManager) {
+                liveFeed()
+            } else {
+                lastData = null
+                flowOf<WebOrdersFeed>(WebOrdersFeed.Idle)
+            }
         }
         .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), WebOrdersFeed.Loading)
 
@@ -66,6 +87,17 @@ class WebOrdersMonitor @Inject constructor(
         .distinctUntilChanged()
         .stateIn(scope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
 
+    /**
+     * Pull-to-refresh: drops the live listener and attaches it again, then waits (a few seconds at most) for the
+     * server's first answer. A listener that failed — no connection when the screen opened, rules not yet
+     * published — is revived the same way, which the error card used to ask for by saying "open the screen again".
+     */
+    suspend fun refresh() {
+        val before = serverAnswers.value
+        restarts.update { it + 1 }
+        withTimeoutOrNull(REFRESH_TIMEOUT_MS) { serverAnswers.first { it > before } }
+    }
+
     private fun liveFeed(): Flow<WebOrdersFeed> {
         // Per listening session: the first answer from the server is "what was waiting when the app opened" — the
         // manager sees it on screen right away, so it is not announced. Only what arrives after that rings.
@@ -73,6 +105,7 @@ class WebOrdersMonitor @Inject constructor(
         return repository.observeRecent()
             .onEach { snapshot ->
                 if (snapshot.fromCache) return@onEach
+                serverAnswers.update { it + 1 }
                 try {
                     if (!baselineDone) {
                         baselineDone = true
@@ -92,8 +125,11 @@ class WebOrdersMonitor @Inject constructor(
                     Log.w(TAG, "Could not announce web orders: ${e.message}")
                 }
             }
-            .map<WebOrdersSnapshot, WebOrdersFeed> { WebOrdersFeed.Data(it.orders) }
-            .onStart { emit(WebOrdersFeed.Loading) }
+            .map<WebOrdersSnapshot, WebOrdersFeed> { snapshot ->
+                WebOrdersFeed.Data(snapshot.orders).also { lastData = it }
+            }
+            // A refresh starts from the list that was on screen, not from an empty page.
+            .onStart { emit(lastData ?: WebOrdersFeed.Loading) }
             .catch { e -> emit(WebOrdersFeed.Failed(failureMessage(e))) }
     }
 
@@ -102,12 +138,13 @@ class WebOrdersMonitor @Inject constructor(
         return if (denied) {
             "لا توجد صلاحية لقراءة طلبات الموقع بهذا الحساب — يجب أن تسمح قواعد Firestore للمدير بقراءة web_orders"
         } else {
-            "تعذّر الاتصال بطلبات الموقع — تحقّق من الإنترنت ثم افتح الشاشة من جديد"
+            "تعذّر الاتصال بطلبات الموقع — تحقّق من الإنترنت ثم اسحب الشاشة لأسفل للتحديث"
         }
     }
 
     private companion object {
         const val TAG = "CadyWebOrders"
         const val STOP_TIMEOUT_MS = 5_000L
+        const val REFRESH_TIMEOUT_MS = 8_000L
     }
 }

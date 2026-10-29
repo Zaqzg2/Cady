@@ -41,6 +41,8 @@ data class WebOrderItem(
     val price: Long? = null,
     /** The quote this line came from ("Q-AB12CD"). */
     val quoteRef: String? = null,
+    /** The app product the seller linked this item to (picked from the product list in the seller's settings), when it did. */
+    val productId: String? = null,
 ) {
     /** "ليمون: 2 كرتونة" — the same wording the page itself shows the customer in its summary. */
     fun display(): String = buildString {
@@ -71,6 +73,9 @@ data class WebOrder(
     val createdAt: Instant?,
     /** Anything else the page stored that has no named place on the screen: label → text. Nothing is hidden. */
     val extras: List<Pair<String, String>>,
+    /** The invoice issued for this order from the app, once there is one (id and printed number). */
+    val invoiceId: String? = null,
+    val invoiceNo: String? = null,
 ) {
     /** "ليمون: 2 كرتونة • رمان: 1 كرتونة" — the whole order in one line. */
     fun itemsText(): String = items.joinToString(" • ") { it.display() }
@@ -131,6 +136,9 @@ internal fun parseWebOrder(id: String, fields: Map<String, Any?>): WebOrder {
     val addressHit = found(ADDRESS_KEYS) ?: customer?.let { found(ADDRESS_KEYS, it, track = false) }
     val note = text(NOTE_KEYS)
     val ref = text(REF_KEYS)
+    // Written by this app when an invoice is issued from the order: part of the order, not "something else the page sent".
+    val invoiceId = text(listOf("invoiceId"))
+    val invoiceNo = text(listOf("invoiceNo"))
 
     var items: List<WebOrderItem> = emptyList()
     for (key in ITEMS_KEYS) {
@@ -172,6 +180,8 @@ internal fun parseWebOrder(id: String, fields: Map<String, Any?>): WebOrder {
         status = WebOrderStatus.from(fields["status"]),
         createdAt = createdAt,
         extras = extras,
+        invoiceId = invoiceId,
+        invoiceNo = invoiceNo,
     )
 }
 
@@ -269,7 +279,8 @@ private fun itemFromMap(map: Map<String, Any?>): WebOrderItem? {
     val unit = UNIT_KEYS.firstNotNullOfOrNull { scalarText(map[it]) }
         ?: if (quantityKey == "cartons" || quantityKey == "carton") "كرتونة" else null
     val price = scalarText(map["price"])?.toLongOrNull()
-    return WebOrderItem(name, quantity, unit, price, scalarText(map["quote"]))
+    val productId = scalarText(map["pid"]) ?: scalarText(map["productId"])
+    return WebOrderItem(name, quantity, unit, price, scalarText(map["quote"]), productId)
 }
 
 /** A field the screen has no named place for, as one line of text (null when there is nothing to show). */

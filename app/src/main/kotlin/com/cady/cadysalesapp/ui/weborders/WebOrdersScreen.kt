@@ -41,11 +41,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +67,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cady.cadysalesapp.data.weborders.WebOrder
+import com.cady.cadysalesapp.data.weborders.WebOrderInvoiceLink
 import com.cady.cadysalesapp.data.weborders.WebOrderStatus
 import com.cady.cadysalesapp.data.weborders.WebQuote
 import com.cady.cadysalesapp.data.weborders.WebQuotesRepository
@@ -89,6 +92,10 @@ import com.cady.cadysalesapp.ui.theme.cady
 @Composable
 fun WebOrdersScreen(
     onBack: () -> Unit,
+    /** Opens a new invoice already filled from this order. */
+    onIssueInvoice: (orderId: String) -> Unit,
+    /** Opens the invoice that was issued for an order. */
+    onOpenInvoice: (invoiceId: String) -> Unit,
     viewModel: WebOrdersViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -96,6 +103,8 @@ fun WebOrdersScreen(
     val snackbarHost = remember { SnackbarHostState() }
     var pendingCancel by remember { mutableStateOf<WebOrder?>(null) }
     val quotes by viewModel.quotes.collectAsStateWithLifecycle()
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+    val invoiceLinks by viewModel.invoiceLinks.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(0) }
     val quoteByRef = remember(quotes.quotes) { quotes.quotes.associateBy { it.ref } }
     val orderedRefs = remember(state.orders) { state.orders.mapNotNull { it.quoteRef }.toSet() }
@@ -146,62 +155,74 @@ fun WebOrdersScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
+        // Pull down to reload both tabs: the live listeners are attached again, and a failed one gets another try.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (state.alertsEnabled && !notificationsAllowed) {
-                item(key = "permission") { PermissionBanner(onOpenSettings = { openNotificationSettings(context) }) }
-            }
-            item(key = "tabs") {
-                SegmentedChoice(
-                    options = listOf(0 to "الطلبات", 1 to (if (quotes.quotes.isEmpty()) "العروض" else "العروض (${quotes.quotes.size})")),
-                    selected = tab,
-                    onSelect = { tab = it },
-                )
-            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (state.alertsEnabled && !notificationsAllowed) {
+                    item(key = "permission") { PermissionBanner(onOpenSettings = { openNotificationSettings(context) }) }
+                }
+                item(key = "tabs") {
+                    SegmentedChoice(
+                        options = listOf(0 to "الطلبات", 1 to (if (quotes.quotes.isEmpty()) "العروض" else "العروض (${quotes.quotes.size})")),
+                        selected = tab,
+                        onSelect = { tab = it },
+                    )
+                }
 
-            if (tab == 1) {
-                quotesSection(quotes, orderedRefs)
-            } else {
-                item(key = "filters") { FilterRow(state, viewModel::select) }
+                if (tab == 1) {
+                    quotesSection(quotes, orderedRefs)
+                } else {
+                    item(key = "filters") { FilterRow(state, viewModel::select) }
 
-                val error = state.error
-                if (error != null) {
-                    item(key = "error") { ErrorCard(error) }
-                } else if (state.loading && state.orders.isEmpty()) {
-                    item(key = "loading") {
-                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                    val error = state.error
+                    if (error != null) {
+                        item(key = "error") { ErrorCard(error) }
+                    } else if (state.loading && state.orders.isEmpty()) {
+                        item(key = "loading") {
+                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                    } else if (state.visible.isEmpty()) {
+                        item(key = "empty") {
+                            EmptyState(
+                                icon = Icons.Filled.Inbox,
+                                title = "لا توجد طلبات «${state.filter.label}»",
+                                message = if (state.filter == WebOrderStatus.NEW) {
+                                    "الطلبات التي يرسلها التجّار من صفحة البيع تظهر هنا فور وصولها."
+                                } else {
+                                    null
+                                },
+                            )
                         }
                     }
-                } else if (state.visible.isEmpty()) {
-                    item(key = "empty") {
-                        EmptyState(
-                            icon = Icons.Filled.Inbox,
-                            title = "لا توجد طلبات «${state.filter.label}»",
-                            message = if (state.filter == WebOrderStatus.NEW) {
-                                "الطلبات التي يرسلها التجّار من صفحة البيع تظهر هنا فور وصولها."
-                            } else {
-                                null
+
+                    items(state.visible, key = { it.id }) { order ->
+                        OrderCard(
+                            order = order,
+                            busy = state.busyId == order.id,
+                            verdict = verdictFor(order, quoteByRef, quotesComplete),
+                            // The invoice written on the order itself wins; otherwise the one this phone remembers.
+                            invoice = order.invoiceId?.let { WebOrderInvoiceLink(it, order.invoiceNo.orEmpty()) }
+                                ?: invoiceLinks[order.id],
+                            onIssueInvoice = { onIssueInvoice(order.id) },
+                            onOpenInvoice = onOpenInvoice,
+                            onCall = { phone -> context.dial(phone) },
+                            onWhatsApp = { phone -> context.openWhatsApp(phone) },
+                            onSetStatus = { target ->
+                                // Cancelling is the one move that deserves a second thought.
+                                if (target == WebOrderStatus.CANCELLED) pendingCancel = order else viewModel.setStatus(order, target)
                             },
                         )
                     }
-                }
-
-                items(state.visible, key = { it.id }) { order ->
-                    OrderCard(
-                        order = order,
-                        busy = state.busyId == order.id,
-                        verdict = verdictFor(order, quoteByRef, quotesComplete),
-                        onCall = { phone -> context.dial(phone) },
-                        onWhatsApp = { phone -> context.openWhatsApp(phone) },
-                        onSetStatus = { target ->
-                            // Cancelling is the one move that deserves a second thought.
-                            if (target == WebOrderStatus.CANCELLED) pendingCancel = order else viewModel.setStatus(order, target)
-                        },
-                    )
                 }
             }
         }
@@ -247,6 +268,9 @@ private fun OrderCard(
     order: WebOrder,
     busy: Boolean,
     verdict: QuoteVerdict?,
+    invoice: WebOrderInvoiceLink?,
+    onIssueInvoice: () -> Unit,
+    onOpenInvoice: (String) -> Unit,
     onCall: (String) -> Unit,
     onWhatsApp: (String) -> Unit,
     onSetStatus: (WebOrderStatus) -> Unit,
@@ -301,6 +325,22 @@ private fun OrderCard(
                         QuoteVerdict.MISMATCH -> Pill("لا يطابق العرض!", MaterialTheme.colorScheme.error)
                         QuoteVerdict.MISSING -> Pill("العرض غير موجود", MaterialTheme.cady.warning)
                         null -> Unit
+                    }
+                }
+            }
+            // Issue the invoice right from the order — or open the one that was already issued.
+            if (order.status != WebOrderStatus.CANCELLED) {
+                if (invoice == null) {
+                    OutlinedButton(onClick = onIssueInvoice, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("إصدار فاتورة")
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Pill(
+                            "فاتورة" + invoice.invoiceNo.takeIf { it.isNotBlank() }?.let { " رقم $it" }.orEmpty(),
+                            MaterialTheme.cady.success,
+                        )
+                        TextButton(onClick = { onOpenInvoice(invoice.invoiceId) }) { Text("عرض الفاتورة") }
                     }
                 }
             }
@@ -463,13 +503,18 @@ private fun QuoteCard(quote: WebQuote, ordered: Boolean) {
                     Pill("لم يؤكَّد بعد", MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            // Every line has its own price: an item can be a product or a scent, each with its own rules.
             Text(
-                quote.items.joinToString(" • ") { "${it.scent}: ${it.cartons} كرتونة" },
+                quote.items.joinToString("\n") { line ->
+                    val base = if (line.list > 0) line.list else quote.list
+                    val price = "${line.scent}: ${line.cartons} كرتونة × ${formatMoney(line.unit.toDouble())}"
+                    if (base > line.unit) "$price (بدل ${formatMoney(base.toDouble())})" else price
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "الكرتونة ${formatMoney(quote.unit.toDouble())} • الإجمالي ${formatMoney(quote.total.toDouble())}",
+                    "الإجمالي ${formatMoney(quote.total.toDouble())}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                 )
