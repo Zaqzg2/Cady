@@ -61,6 +61,8 @@ data class BotConfig(
     /** How long a quote stays valid, in hours. */
     val validHours: Long = BotDefaults.VALID_HOURS,
     val items: List<BotItem> = emptyList(),
+    /** The page's microphone and live voice conversation, and WhatsApp voice notes. Off = text only. */
+    val voiceEnabled: Boolean = true,
 ) {
     companion object {
         /** What the settings screen starts from when nothing is saved yet. */
@@ -106,6 +108,7 @@ internal fun DocumentSnapshot.toBotConfig(): BotConfig? {
     return BotConfig(
         enabled = fields["enabled"] as? Boolean ?: true,
         validHours = number(fields["validHours"], BotDefaults.VALID_HOURS),
+        voiceEnabled = fields["voiceEnabled"] as? Boolean ?: true,
         items = items.ifEmpty {
             BotConfig.scentItems(
                 price = number(fields["price"], BotDefaults.PRICE),

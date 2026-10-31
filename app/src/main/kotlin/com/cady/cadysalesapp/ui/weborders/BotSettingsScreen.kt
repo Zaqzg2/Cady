@@ -74,7 +74,7 @@ fun BotSettingsScreen(
         viewModel.dismissMessage()
     }
 
-    val (draft, problem) = checkDraft(state.enabled, state.hoursText, state.items)
+    val (draft, problem) = checkDraft(state.enabled, state.hoursText, state.items, state.voiceEnabled)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -115,6 +115,23 @@ fun BotSettingsScreen(
                         )
                     }
                     Switch(checked = state.enabled, onCheckedChange = viewModel::setEnabled)
+                }
+            }
+
+            CadyCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("الصوت", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "الميكروفون والمحادثة الصوتية المباشرة في الصفحة، وملاحظات واتساب الصوتية. عند الإيقاف يبقى النص فقط.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = state.voiceEnabled, onCheckedChange = viewModel::setVoiceEnabled)
                 }
             }
 

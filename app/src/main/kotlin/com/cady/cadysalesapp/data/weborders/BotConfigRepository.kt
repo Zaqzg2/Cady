@@ -44,6 +44,7 @@ class BotConfigRepository @Inject constructor(
             mapOf(
                 "enabled" to config.enabled,
                 "validHours" to config.validHours,
+                "voiceEnabled" to config.voiceEnabled,
                 "items" to config.items.map { item ->
                     mapOf(
                         "id" to item.id,

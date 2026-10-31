@@ -81,7 +81,12 @@ internal fun BotItemDraft.toBotItemOrNull(): BotItem? {
 }
 
 /** The settings as typed, ready to save — or the first thing that is wrong with them. */
-internal fun checkDraft(enabled: Boolean, hoursText: String, drafts: List<BotItemDraft>): Pair<BotConfig?, String?> {
+internal fun checkDraft(
+    enabled: Boolean,
+    hoursText: String,
+    drafts: List<BotItemDraft>,
+    voiceEnabled: Boolean = true,
+): Pair<BotConfig?, String?> {
     val hours = parseNumber(hoursText)?.toLong()
     if (hours == null || hours <= 0) return null to "اكتب مدة صلاحية العرض بالساعات"
     if (drafts.isEmpty()) return null to "أضف صنفًا واحدًا على الأقل"
@@ -92,7 +97,7 @@ internal fun checkDraft(enabled: Boolean, hoursText: String, drafts: List<BotIte
     val items = drafts.mapNotNull { it.toBotItemOrNull() }
     if (items.map { it.name }.toSet().size != items.size) return null to "اسم صنف مكرر — لكل صنف اسم مختلف"
     if (enabled && items.none { it.active }) return null to "فعّل صنفًا واحدًا على الأقل، أو أوقف البائع الآلي"
-    return BotConfig(enabled = enabled, validHours = hours, items = items) to null
+    return BotConfig(enabled = enabled, validHours = hours, items = items, voiceEnabled = voiceEnabled) to null
 }
 
 private const val MAX_NAME = 40
@@ -104,6 +109,7 @@ data class BotSettingsUiState(
     /** True once the fields were filled from what is saved (or the defaults) — only once, so typing is never overwritten. */
     val seeded: Boolean = false,
     val enabled: Boolean = true,
+    val voiceEnabled: Boolean = true,
     val hoursText: String = "",
     val items: List<BotItemDraft> = emptyList(),
     val saving: Boolean = false,
@@ -141,6 +147,7 @@ class BotSettingsViewModel @Inject constructor(
         return state.copy(
             seeded = true,
             enabled = current.enabled,
+            voiceEnabled = current.voiceEnabled,
             hoursText = current.validHours.toString(),
             items = current.items.map { it.toDraft() },
         )
@@ -148,6 +155,10 @@ class BotSettingsViewModel @Inject constructor(
 
     fun setEnabled(enabled: Boolean) {
         _state.update { it.copy(enabled = enabled) }
+    }
+
+    fun setVoiceEnabled(enabled: Boolean) {
+        _state.update { it.copy(voiceEnabled = enabled) }
     }
 
     fun setHours(text: String) {
@@ -184,7 +195,7 @@ class BotSettingsViewModel @Inject constructor(
     fun save() {
         val current = _state.value
         if (current.saving) return
-        val config = checkDraft(current.enabled, current.hoursText, current.items).first ?: return
+        val config = checkDraft(current.enabled, current.hoursText, current.items, current.voiceEnabled).first ?: return
         viewModelScope.launch {
             _state.update { it.copy(saving = true) }
             val note = try {

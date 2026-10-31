@@ -166,7 +166,7 @@ internal fun parseWebOrder(id: String, fields: Map<String, Any?>): WebOrder {
     used.add("status")
     val extras = fields.entries
         .filter { it.key !in used && it.key !in HIDDEN_KEYS && !isPlainWebSource(it.key, it.value) }
-        .mapNotNull { (key, value) -> describe(value)?.let { labelFor(key) to it } }
+        .mapNotNull { (key, value) -> describe(value)?.let { labelFor(key) to friendlyValue(key, it) } }
 
     return WebOrder(
         id = id,
@@ -236,6 +236,12 @@ private val extraDateFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm").withZone(ZoneId.systemDefault())
 
 private fun labelFor(key: String): String = EXTRA_LABELS[key] ?: key
+
+/** The seller's own channels read better in Arabic than as their raw codes. */
+private val SOURCE_NAMES = mapOf("whatsapp" to "واتساب", "whatsapp-voice" to "واتساب (ملاحظة صوتية)")
+
+private fun friendlyValue(key: String, text: String): String =
+    if (key == "source") SOURCE_NAMES[text.trim().lowercase()] ?: text else text
 
 private fun stringKeyed(map: Map<*, *>): Map<String, Any?> = map.entries.associate { it.key.toString() to it.value }
 
