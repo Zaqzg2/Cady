@@ -12,8 +12,6 @@ import com.cady.cadysalesapp.data.local.entity.PaymentMode
 import com.cady.cadysalesapp.data.local.entity.ProductEntity
 import com.cady.cadysalesapp.data.local.entity.SyncStatus
 import com.cady.cadysalesapp.data.repository.AccountRepository
-import com.cady.cadysalesapp.data.repository.CompanySettings
-import com.cady.cadysalesapp.data.repository.CompanySettingsRepository
 import com.cady.cadysalesapp.data.repository.CustomerRepository
 import com.cady.cadysalesapp.data.repository.InvoiceLineInput
 import com.cady.cadysalesapp.data.repository.InvoiceRepository
@@ -69,8 +67,9 @@ data class InvoiceFormState(
         rep's own manual correction is never silently overwritten. */
     val docNumber: String = "",
     val date: Instant = Instant.now(),
-    /** Only set once the rep actually draws something this time; null means
-        "use the saved default signature, if any" at save time. */
+    /** The customer's signature PNG, set when they confirm the full-screen pad
+        (SignatureField). Null = unsigned: the invoice prints blank space for a
+        handwritten signature, never the rep's saved default (see save()). */
     val signaturePath: String? = null,
     /** Customer's balance *before* this document's own effect — fetched once
         when the customer is selected/loaded, then combined with the live
@@ -117,7 +116,6 @@ class InvoiceViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val invoiceRepository: InvoiceRepository,
     private val customerRepository: CustomerRepository,
-    private val companySettingsRepository: CompanySettingsRepository,
     private val productRepository: ProductRepository,
     private val offerRepository: OfferRepository,
     private val webOrdersRepository: WebOrdersRepository,
@@ -157,11 +155,6 @@ class InvoiceViewModel @Inject constructor(
     val availableCustomers: StateFlow<List<CustomerEntity>> = accountRepository.currentUser
         .flatMapLatest { user -> if (user == null) flowOf(emptyList()) else customerRepository.observeAll(user.id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** So the screen can show "leave blank to use the saved default" under the
-        signature pad only when a default actually exists. */
-    val companySettings: StateFlow<CompanySettings> = companySettingsRepository.settings
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CompanySettings())
 
     private val _form = MutableStateFlow(InvoiceFormState())
     val form: StateFlow<InvoiceFormState> = _form

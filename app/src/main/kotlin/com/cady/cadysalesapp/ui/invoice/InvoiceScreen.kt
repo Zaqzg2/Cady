@@ -80,13 +80,11 @@ import com.cady.cadysalesapp.ui.common.DecimalKeyboard
 import com.cady.cadysalesapp.ui.common.ProductIconCircle
 import com.cady.cadysalesapp.ui.common.QuantityStepper
 import com.cady.cadysalesapp.ui.common.SearchPickerDialog
-import com.cady.cadysalesapp.ui.common.SignaturePad
+import com.cady.cadysalesapp.ui.common.SignatureField
 import com.cady.cadysalesapp.ui.common.UiState
 import com.cady.cadysalesapp.ui.common.formatMoney
-import com.cady.cadysalesapp.ui.common.rememberSignaturePadState
 import com.cady.cadysalesapp.ui.theme.cady
 import kotlinx.coroutines.launch
-import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -101,7 +99,6 @@ fun InvoiceScreen(
     val products by viewModel.products.collectAsState()
     val customers by viewModel.availableCustomers.collectAsState()
     val saveState by viewModel.saveState.collectAsState()
-    val companySettings by viewModel.companySettings.collectAsState()
     // Read so the product list redraws when an offer arrives or expires (offerFor() looks it up).
     @Suppress("UNUSED_VARIABLE")
     val offers by viewModel.offers.collectAsState()
@@ -110,7 +107,6 @@ fun InvoiceScreen(
     var showProductPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val signatureState = rememberSignaturePadState()
     val dateFormatter = remember { DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneId.systemDefault()) }
     val totals = form.totals
     val scope = rememberCoroutineScope()
@@ -157,15 +153,7 @@ fun InvoiceScreen(
                         )
                     }
                     Button(
-                        onClick = {
-                            if (!signatureState.isEmpty) {
-                                val file = File(context.filesDir, "signatures/invoice_${System.currentTimeMillis()}.png")
-                                if (signatureState.saveTo(file)) {
-                                    viewModel.setSignaturePath(file.absolutePath)
-                                }
-                            }
-                            viewModel.save(onSaved)
-                        },
+                        onClick = { viewModel.save(onSaved) },
                         enabled = saveState !is UiState.Loading,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.widthIn(min = 150.dp).height(52.dp),
@@ -335,23 +323,14 @@ fun InvoiceScreen(
             Spacer(Modifier.height(16.dp))
             Text("التوقيع", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
-            SignaturePad(state = signatureState, modifier = Modifier.fillMaxWidth())
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    if (!companySettings.repSignaturePath.isNullOrBlank()) {
-                        "اتركه فارغًا لاستخدام التوقيع الافتراضي المحفوظ"
-                    } else {
-                        "التوقيع اختياري"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = { signatureState.clear() }) { Text("مسح") }
-            }
+            // Tapping the box opens a full-screen pad; the PNG is saved on "تم" and its path lives in the form.
+            // No fallback to the rep's saved default here: an unsigned invoice prints blank space instead.
+            SignatureField(
+                signaturePath = form.signaturePath,
+                onSignatureChange = viewModel::setSignaturePath,
+                filePrefix = "invoice",
+                note = "التوقيع اختياري",
+            )
 
             Spacer(Modifier.height(12.dp))
             CadyCard {
